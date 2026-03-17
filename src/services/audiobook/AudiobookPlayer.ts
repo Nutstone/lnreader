@@ -4,7 +4,7 @@ import { getMMKVObject } from '@utils/mmkv/mmkv';
 import {
   AUDIOBOOK_SETTINGS,
   AudiobookSettings,
-} from '@hooks/persisted/useSettings';
+} from '@hooks/persisted/useAudiobookSettings';
 import { AudiobookPipeline } from './pipeline';
 import { AudioSegment, ChapterAnnotation, AudiobookConfig } from './types';
 import { AUDIOBOOK_STORAGE } from '@utils/Storages';
@@ -19,9 +19,17 @@ export class AudiobookPlayer {
   private state: AudiobookState = 'idle';
   private currentNovelId = '';
   private tempDir = '';
+  private activeGenerator: AsyncGenerator<AudioSegment> | null = null;
+  private bufferingPromise: Promise<void> | null = null;
+  private segmentResolvers: (() => void)[] = [];
 
   // Callbacks
-  onSegmentChange?: (index: number, total: number, speaker: string) => void;
+  onSegmentChange?: (
+    index: number,
+    total: number,
+    speaker: string,
+    text: string,
+  ) => void;
   onFinished?: () => void;
   onError?: (error: Error) => void;
   onStateChange?: (state: AudiobookState) => void;
@@ -56,7 +64,7 @@ export class AudiobookPlayer {
       },
       tts: {
         dtype: settings.ttsQuality || 'q8',
-        lookaheadSegments: 2,
+        lookaheadSegments: settings.lookaheadSegments ?? 2,
         sampleRate: settings.sampleRate || 24000,
       },
       cacheDir: AUDIOBOOK_STORAGE,
@@ -113,7 +121,8 @@ export class AudiobookPlayer {
 
       // Start playing immediately, continue buffering in background
       this.setState('playing');
-      this.bufferRemaining(generator);
+      this.activeGenerator = generator;
+      this.bufferingPromise = this.bufferRemaining(generator);
       await this.playSegment(0);
     } catch (error) {
       this.setState('idle');
@@ -127,21 +136,36 @@ export class AudiobookPlayer {
     try {
       for await (const segment of generator) {
         if (this.state === 'idle') {
-          return;
+          break;
         }
         this.segments.push(segment);
+        // Notify any playSegment calls waiting for this segment
+        const resolver = this.segmentResolvers.shift();
+        resolver?.();
       }
     } catch (error) {
       this.onError?.(error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      // Signal all remaining waiters that no more segments are coming
+      for (const resolver of this.segmentResolvers) {
+        resolver();
+      }
+      this.segmentResolvers = [];
     }
+  }
+
+  private waitForSegment(): Promise<void> {
+    return new Promise(resolve => {
+      this.segmentResolvers.push(resolve);
+    });
   }
 
   private async playSegment(index: number): Promise<void> {
     if (index >= this.segments.length) {
       // Check if we're still buffering
       if (this.state === 'playing' || this.state === 'paused') {
-        // Wait briefly for more segments
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Wait for the next segment to be buffered
+        await this.waitForSegment();
         if (index < this.segments.length) {
           return this.playSegment(index);
         }
@@ -153,7 +177,12 @@ export class AudiobookPlayer {
 
     this.currentIndex = index;
     const segment = this.segments[index];
-    this.onSegmentChange?.(index, this.segments.length, segment.speaker);
+    this.onSegmentChange?.(
+      index,
+      this.segments.length,
+      segment.speaker,
+      segment.text || '',
+    );
 
     // Handle pause before segment
     if (segment.pauseBeforeMs > 0) {
@@ -224,6 +253,23 @@ export class AudiobookPlayer {
   async stop(): Promise<void> {
     const wasActive = this.state !== 'idle';
     this.setState('idle');
+
+    // Close the async generator so it stops producing segments
+    if (this.activeGenerator) {
+      try {
+        await this.activeGenerator.return(undefined as never);
+      } catch {
+        // Ignore errors during generator cleanup
+      }
+      this.activeGenerator = null;
+    }
+
+    // Resolve any pending segment waiters
+    for (const resolver of this.segmentResolvers) {
+      resolver();
+    }
+    this.segmentResolvers = [];
+
     if (this.sound) {
       try {
         await this.sound.stopAsync();
@@ -233,10 +279,21 @@ export class AudiobookPlayer {
       }
       this.sound = null;
     }
+
+    // Wait for buffering to complete before cleaning up temp files
+    if (this.bufferingPromise) {
+      try {
+        await this.bufferingPromise;
+      } catch {
+        // Ignore errors
+      }
+      this.bufferingPromise = null;
+    }
+
     this.segments = [];
     this.currentIndex = 0;
 
-    // Clean up temp files
+    // Clean up temp files after buffering has stopped
     if (wasActive && this.tempDir && NativeFile.exists(this.tempDir)) {
       try {
         NativeFile.unlink(this.tempDir);
@@ -264,6 +321,7 @@ export class AudiobookPlayer {
         index,
         this.segments.length,
         this.segments[index].speaker,
+        this.segments[index].text || '',
       );
     }
   }
