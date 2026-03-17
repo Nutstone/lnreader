@@ -422,6 +422,7 @@
       "addTag": "Add Tag",
       "author": "Author: %{author}",
       "cover": "Edit cover",
+      "glossary": "Edit glossary",
       "info": "Edit info",
       "status": "Status:",
       "summary": "Description: %{summary}...",
@@ -455,6 +456,28 @@
     },
     "tracked": "Tracked",
     "tracking": "Tracking",
+    "audiobook": {
+      "custom": "Custom",
+      "customAmount": "Process custom amount",
+      "next": "Next chapter",
+      "next5": "Next 5 chapters",
+      "next10": "Next 10 chapters",
+      "unread": "Unread"
+    },
+    "glossaryEditor": {
+      "addCharacter": "Add character",
+      "aliases": "Aliases (comma-separated)",
+      "deleteConfirm": "Delete glossary and all voice data for this novel?",
+      "deleteGlossary": "Delete glossary",
+      "description": "Description",
+      "gender": "Gender",
+      "name": "Name",
+      "narratorGender": "Narrator gender",
+      "noGlossary": "No glossary found. Process chapters through the audiobook pipeline first.",
+      "personality": "Personality traits",
+      "save": "Save glossary",
+      "title": "Character Glossary"
+    },
     "unknownStatus": "Unknown status",
     "updatedToast": "Updated %{name}"
   },
@@ -569,6 +592,20 @@
     "LOCAL_BACKUP": "Local Backup",
     "LOCAL_RESTORE": "Local Restore",
     "MIGRATE_NOVEL": "Migrating Novel",
-    "DOWNLOAD_CHAPTER": "Downloading Chapter"
+    "DOWNLOAD_CHAPTER": "Downloading Chapter",
+    "AUDIOBOOK_PIPELINE": "Processing Audiobook"
+  },
+  "audiobookSettings": {
+    "title": "Audiobook",
+    "llmProvider": "LLM Provider",
+    "apiKey": "API Key",
+    "baseUrl": "Base URL",
+    "model": "Model",
+    "ttsQuality": "TTS Quality",
+    "lookaheadSegments": "Lookahead segments",
+    "sampleRate": "Sample rate",
+    "providerAnthropic": "Anthropic",
+    "providerGemini": "Gemini",
+    "providerOllama": "Ollama"
   }
 }

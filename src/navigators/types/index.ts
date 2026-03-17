@@ -80,9 +80,15 @@ export type SettingsStackParamList = {
   BackupSettings: undefined;
   AppearanceSettings: undefined;
   AdvancedSettings: undefined;
+  AudiobookSettings: undefined;
   LibrarySettings: undefined;
   RespositorySettings: { url?: string } | undefined;
 };
+
+export type AudiobookSettingsScreenProps = StackScreenProps<
+  SettingsStackParamList,
+  'AudiobookSettings'
+>;
 
 export type NovelScreenProps = StackScreenProps<
   ReaderStackParamList & RootStackParamList,
