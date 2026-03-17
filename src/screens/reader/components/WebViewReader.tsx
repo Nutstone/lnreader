@@ -123,7 +123,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
   useEffect(() => {
     const player = audiobookPlayerRef.current;
 
-    player.onSegmentChange = (index, total, speaker) => {
+    player.onSegmentChange = (index, total, speaker, text) => {
       updateTTSProgress(index, total);
       updateTTSNotification({
         novelName: novel?.name || 'Unknown',
@@ -131,6 +131,16 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
         coverUri: novel?.cover || '',
         isPlaying: true,
       });
+      // Highlight the current segment text in the WebView
+      if (text) {
+        const escaped = text
+          .replace(/\\/g, '\\\\')
+          .replace(/'/g, "\\'")
+          .replace(/\n/g, '\\n');
+        webViewRef.current?.injectJavaScript(
+          `if (window.audiobook && window.audiobook.highlightSegment) { audiobook.highlightSegment('${escaped}'); }`,
+        );
+      }
     };
 
     player.onFinished = () => {
@@ -143,7 +153,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
       } else {
         dismissTTSNotification();
         webViewRef.current?.injectJavaScript(
-          'if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }' +
+          'if (window.audiobook) { audiobook.stop(); }' +
           'var c = document.getElementById("TTS-Controller");' +
           'if (c && c.firstElementChild) { c.firstElementChild.innerHTML = volumnIcon; }',
         );

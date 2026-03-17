@@ -82,6 +82,7 @@ export class TTSRenderer {
       audioData,
       durationMs,
       speaker: '',
+      text,
     };
   }
 
@@ -114,6 +115,7 @@ export class TTSRenderer {
         ...audio,
         pauseBeforeMs,
         speaker: segment.speaker,
+        text: segment.text,
       }));
 
       renderQueue.push(renderPromise);
@@ -141,10 +143,17 @@ export class TTSRenderer {
 
   private arrayBufferToBase64(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
+    const CHUNK_SIZE = 8192;
     let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    for (let i = 0; i < bytes.byteLength; i += CHUNK_SIZE) {
+      const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.byteLength));
+      binary += String.fromCharCode(...chunk);
     }
-    return btoa(binary);
+    // Use global.btoa which is available in Hermes (React Native),
+    // with a fallback for environments where it may not exist
+    if (typeof btoa === 'function') {
+      return btoa(binary);
+    }
+    return Buffer.from(binary, 'binary').toString('base64');
   }
 }

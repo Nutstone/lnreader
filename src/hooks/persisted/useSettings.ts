@@ -12,17 +12,6 @@ export const BROWSE_SETTINGS = 'BROWSE_SETTINGS';
 export const LIBRARY_SETTINGS = 'LIBRARY_SETTINGS';
 export const CHAPTER_GENERAL_SETTINGS = 'CHAPTER_GENERAL_SETTINGS';
 export const CHAPTER_READER_SETTINGS = 'CHAPTER_READER_SETTINGS';
-export const AUDIOBOOK_SETTINGS = 'AUDIOBOOK_SETTINGS';
-
-export interface AudiobookSettings {
-  llmProvider: 'anthropic' | 'gemini' | 'ollama';
-  apiKey: string;
-  model: string;
-  baseUrl: string;
-  ttsQuality: 'q4' | 'q8' | 'fp16';
-  sampleRate: number;
-}
-
 export interface AppSettings {
   /**
    * General settings

@@ -201,14 +201,32 @@ export class AudiobookPipeline {
   }
 
   private async writeJSON(path: string, data: unknown): Promise<void> {
-    NativeFile.writeFile(path, JSON.stringify(data, null, 2));
+    try {
+      NativeFile.writeFile(path, JSON.stringify(data, null, 2));
+    } catch (error) {
+      throw new Error(
+        `Failed to write cache file ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async readJSON<T>(path: string): Promise<T | null> {
-    if (!NativeFile.exists(path)) {
+    try {
+      if (!NativeFile.exists(path)) {
+        return null;
+      }
+      const content = NativeFile.readFile(path);
+      return JSON.parse(content) as T;
+    } catch {
+      // Corrupt cache file — delete it and return null so it gets regenerated
+      try {
+        if (NativeFile.exists(path)) {
+          NativeFile.unlink(path);
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
       return null;
     }
-    const content = NativeFile.readFile(path);
-    return JSON.parse(content) as T;
   }
 }

@@ -21,62 +21,72 @@ export const processAudiobook = async (
     transformer: (meta: BackgroundTaskMetadata) => BackgroundTaskMetadata,
   ) => void,
 ) => {
-  setMeta(meta => ({
-    ...meta,
-    isRunning: true,
-    progressText: `Processing ${data.novelName}...`,
-  }));
-
-  const settings = getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS);
-
-  const config: AudiobookConfig = {
-    llm: {
-      provider: settings?.llmProvider ?? 'gemini',
-      apiKey: settings?.apiKey || undefined,
-      baseUrl: settings?.baseUrl || undefined,
-      model: settings?.model || undefined,
-    },
-    tts: {
-      dtype: settings?.ttsQuality ?? 'q8',
-      lookaheadSegments: settings?.lookaheadSegments ?? 2,
-      sampleRate: settings?.sampleRate ?? 24000,
-    },
-    cacheDir: '',
-    novelId: String(data.novelId),
-  };
-
-  const pipeline = new AudiobookPipeline(config);
-  const plugin = getPlugin(data.pluginId);
-  if (!plugin) {
-    throw new Error(`Plugin not found: ${data.pluginId}`);
-  }
-
-  // Fetch chapter texts
-  const chapterTexts: string[] = [];
-  for (let i = 0; i < data.chapterIds.length; i++) {
+  try {
     setMeta(meta => ({
       ...meta,
-      progressText: `Fetching chapter ${i + 1}/${data.chapterIds.length}...`,
-      progress: (i / data.chapterIds.length) * 0.1,
+      isRunning: true,
+      progressText: `Processing ${data.novelName}...`,
     }));
 
-    const chapterText = await plugin.parseChapter(data.chapterPaths[i]);
-    chapterTexts.push(chapterText || '');
-  }
+    const settings = getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS);
 
-  // Run the pipeline
-  await pipeline.processNovel(chapterTexts, progress => {
+    const config: AudiobookConfig = {
+      llm: {
+        provider: settings?.llmProvider ?? 'gemini',
+        apiKey: settings?.apiKey || undefined,
+        baseUrl: settings?.baseUrl || undefined,
+        model: settings?.model || undefined,
+      },
+      tts: {
+        dtype: settings?.ttsQuality ?? 'q8',
+        lookaheadSegments: settings?.lookaheadSegments ?? 2,
+        sampleRate: settings?.sampleRate ?? 24000,
+      },
+      cacheDir: '',
+      novelId: String(data.novelId),
+    };
+
+    const pipeline = new AudiobookPipeline(config);
+    const plugin = getPlugin(data.pluginId);
+    if (!plugin) {
+      throw new Error(`Plugin not found: ${data.pluginId}`);
+    }
+
+    // Fetch chapter texts
+    const chapterTexts: string[] = [];
+    for (let i = 0; i < data.chapterIds.length; i++) {
+      setMeta(meta => ({
+        ...meta,
+        progressText: `Fetching chapter ${i + 1}/${data.chapterIds.length}...`,
+        progress: (i / data.chapterIds.length) * 0.1,
+      }));
+
+      const chapterText = await plugin.parseChapter(data.chapterPaths[i]);
+      chapterTexts.push(chapterText || '');
+    }
+
+    // Run the pipeline
+    await pipeline.processNovel(chapterTexts, progress => {
+      setMeta(meta => ({
+        ...meta,
+        progressText: progress.message,
+        progress: 0.1 + progress.progress * 0.9,
+      }));
+    });
+
     setMeta(meta => ({
       ...meta,
-      progressText: progress.message,
-      progress: 0.1 + progress.progress * 0.9,
+      progress: 1,
+      isRunning: false,
+      progressText: `Finished processing ${data.novelName}`,
     }));
-  });
-
-  setMeta(meta => ({
-    ...meta,
-    progress: 1,
-    isRunning: false,
-    progressText: `Finished processing ${data.novelName}`,
-  }));
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Unknown error occurred';
+    setMeta(meta => ({
+      ...meta,
+      isRunning: false,
+      progressText: `Error processing ${data.novelName}: ${message}`,
+    }));
+  }
 };
