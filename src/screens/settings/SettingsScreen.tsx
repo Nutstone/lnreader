@@ -79,6 +79,16 @@ const SettingsScreen = ({ navigation }: SettingsScreenProps) => {
           theme={theme}
         />
         <List.Item
+          title={getString('audiobookSettings.title')}
+          icon="headphones"
+          onPress={() =>
+            navigation.navigate('SettingsStack', {
+              screen: 'AudiobookSettings',
+            })
+          }
+          theme={theme}
+        />
+        <List.Item
           title={getString('advancedSettings')}
           icon="code-tags"
           onPress={() =>
