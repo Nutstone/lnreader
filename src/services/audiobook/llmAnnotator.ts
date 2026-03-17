@@ -28,6 +28,12 @@ export class LLMAnnotator {
     novelId: string,
     chapterTexts: string[],
   ): Promise<CharacterGlossary> {
+    if (!this.config.apiKey) {
+      throw new Error(
+        'LLM API key is not configured. Please set it in Audiobook Settings.',
+      );
+    }
+
     const prompt = buildGlossaryPrompt(chapterTexts);
     const response = await this.callLLM(prompt.system, prompt.user);
     const parsed = this.parseJSON<{
@@ -35,10 +41,16 @@ export class LLMAnnotator {
       narratorGender: 'male' | 'female';
     }>(response);
 
+    if (!Array.isArray(parsed.characters)) {
+      throw new Error(
+        'LLM returned invalid glossary: missing "characters" array',
+      );
+    }
+
     return {
       novelId,
       characters: parsed.characters,
-      narratorGender: parsed.narratorGender,
+      narratorGender: parsed.narratorGender || 'male',
       createdAt: new Date().toISOString(),
     };
   }
@@ -48,9 +60,21 @@ export class LLMAnnotator {
     chapterText: string,
     glossary: CharacterGlossary,
   ): Promise<ChapterAnnotation> {
+    if (!this.config.apiKey) {
+      throw new Error(
+        'LLM API key is not configured. Please set it in Audiobook Settings.',
+      );
+    }
+
     const prompt = buildAnnotationPrompt(chapterText, glossary, chapterId);
     const response = await this.callLLM(prompt.system, prompt.user);
     const parsed = this.parseJSON<{ segments: AnnotatedSegment[] }>(response);
+
+    if (!Array.isArray(parsed.segments)) {
+      throw new Error(
+        'LLM returned invalid annotation: missing "segments" array',
+      );
+    }
 
     return {
       chapterId,
@@ -81,7 +105,7 @@ export class LLMAnnotator {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': this.config.apiKey!,
+          'x-api-key': this.config.apiKey || '',
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({

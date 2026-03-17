@@ -295,12 +295,18 @@ export class VoiceBlender {
       weight: component.weight + (rng() * 10 - 5), // ±5 variation
     }));
 
-    // Normalize weights to sum to 100
+    // Normalize weights to sum to exactly 100
     const total = perturbed.reduce((sum, c) => sum + c.weight, 0);
-    return perturbed.map(c => ({
+    const normalized = perturbed.map(c => ({
       voiceId: c.voiceId,
       weight: Math.round((c.weight / total) * 100),
     }));
+    // Adjust last component to ensure weights sum to exactly 100
+    const roundedTotal = normalized.reduce((sum, c) => sum + c.weight, 0);
+    if (normalized.length > 0 && roundedTotal !== 100) {
+      normalized[normalized.length - 1].weight += 100 - roundedTotal;
+    }
+    return normalized;
   }
 
   /* eslint-disable no-bitwise */

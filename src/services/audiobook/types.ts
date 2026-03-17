@@ -110,6 +110,7 @@ export interface AudioSegment {
   audioData: string;
   durationMs: number;
   speaker: string;
+  text: string;
 }
 
 // ── Progress Callback ───────────────────────────────────────────

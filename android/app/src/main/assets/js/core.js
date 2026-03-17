@@ -478,6 +478,7 @@ van.derive(() => {
 window.audiobook = {
   started: false,
   playing: false,
+  _highlightedElement: null,
   start: function () {
     this.started = true;
     this.playing = true;
@@ -497,8 +498,45 @@ window.audiobook = {
   stop: function () {
     this.started = false;
     this.playing = false;
+    this.clearHighlight();
     reader.post({ type: 'audiobook-stop' });
     reader.post({ type: 'tts-state', data: { isReading: false } });
+  },
+  clearHighlight: function () {
+    if (this._highlightedElement) {
+      this._highlightedElement.classList.remove('highlight');
+      this._highlightedElement = null;
+    }
+  },
+  highlightSegment: function (text) {
+    this.clearHighlight();
+    if (!text) return;
+    // Find the element containing this text using a TreeWalker
+    var walker = document.createTreeWalker(
+      reader.chapterElement,
+      NodeFilter.SHOW_ELEMENT,
+      null,
+      false,
+    );
+    var needle = text.trim().substring(0, 60);
+    var node;
+    while ((node = walker.nextNode())) {
+      if (
+        node.children.length === 0 ||
+        (node.childNodes.length > 0 && node.childNodes[0].nodeType === 3)
+      ) {
+        var nodeText = (node.innerText || '').trim();
+        if (nodeText && nodeText.indexOf(needle) !== -1) {
+          node.classList.add('highlight');
+          this._highlightedElement = node;
+          // Scroll into view if needed
+          if (window.tts && window.tts.scrollToElement) {
+            tts.scrollToElement(node);
+          }
+          return;
+        }
+      }
+    }
   },
 };
 
