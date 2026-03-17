@@ -263,9 +263,9 @@ const TTSController = () => {
   return div(
     {
       id: 'TTS-Controller',
-      class: () => `${reader.generalSettings.val.TTSEnable ? '' : 'hidden'}`,
+      class: () => `${(reader.generalSettings.val.TTSEnable || reader.generalSettings.val.AudiobookEnable) ? '' : 'hidden'}`,
       style: () =>
-        reader.generalSettings.val.TTSEnable
+        (reader.generalSettings.val.TTSEnable || reader.generalSettings.val.AudiobookEnable)
           ? 'pointer-events: auto;'
           : 'pointer-events: none; display: none !important; opacity: 0; transition: none;',
       ontouchstart: () => {
@@ -282,6 +282,10 @@ const TTSController = () => {
         clientY = e.changedTouches[0].clientY;
         controllerElement.style.left = `${clientX}px`;
         controllerElement.style.top = `${clientY}px`;
+        // In audiobook mode, skip element highlighting (plays full chapter)
+        if (reader.generalSettings.val.AudiobookEnable) {
+          return;
+        }
         const hoverElements = document.elementsFromPoint(clientX, clientY);
         const newHoverElement = hoverElements.reverse().find(e => {
           if (e.id.includes('scrollbar')) {
@@ -307,8 +311,11 @@ const TTSController = () => {
             top = reader.layoutHeight - 120;
           }
           controllerElement.style.top = `${top}px`;
-          // Check if TTS is still enabled before starting
-          if (hoverElement && reader.generalSettings.val.TTSEnable) {
+          if (reader.generalSettings.val.AudiobookEnable) {
+            // In audiobook mode, start full chapter playback (no element targeting)
+            audiobook.start();
+            controllerElement.firstElementChild.innerHTML = pauseIcon;
+          } else if (hoverElement && reader.generalSettings.val.TTSEnable) {
             tts.start(hoverElement);
             controllerElement.firstElementChild.innerHTML = pauseIcon;
           }
@@ -318,7 +325,21 @@ const TTSController = () => {
       },
       onclick: e => {
         e.stopPropagation();
-        // Don't allow interaction if TTS is disabled
+        // Audiobook mode
+        if (reader.generalSettings.val.AudiobookEnable) {
+          if (audiobook.playing) {
+            audiobook.pause();
+            controllerElement.firstElementChild.innerHTML = resumeIcon;
+          } else if (audiobook.started) {
+            audiobook.resume();
+            controllerElement.firstElementChild.innerHTML = pauseIcon;
+          } else {
+            audiobook.start();
+            controllerElement.firstElementChild.innerHTML = pauseIcon;
+          }
+          return;
+        }
+        // TTS mode
         if (!reader.generalSettings.val.TTSEnable) {
           return;
         }
