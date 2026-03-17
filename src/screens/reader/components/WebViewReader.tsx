@@ -24,6 +24,7 @@ import {
 import { getBatteryLevelSync } from 'react-native-device-info';
 import * as Speech from 'expo-speech';
 import { PLUGIN_STORAGE } from '@utils/Storages';
+import { AudiobookPlayer } from '@services/audiobook/AudiobookPlayer';
 import { useChapterContext } from '../ChapterContext';
 import {
   showTTSNotification,
@@ -105,58 +106,160 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
   const pluginCustomCSS = `file://${PLUGIN_STORAGE}/${plugin?.id}/custom.css`;
   const nextChapterScreenVisible = useRef<boolean>(false);
   const autoStartTTSRef = useRef<boolean>(false);
+  const autoStartAudiobookRef = useRef<boolean>(false);
   const isTTSReadingRef = useRef<boolean>(false);
+  const isAudiobookActiveRef = useRef<boolean>(false);
   const readerSettingsRef = useRef<ChapterReaderSettings>(readerSettings);
   const appStateRef = useRef(AppState.currentState);
   const ttsQueueRef = useRef<string[]>([]);
   const ttsQueueIndexRef = useRef<number>(0);
+  const audiobookPlayerRef = useRef<AudiobookPlayer>(new AudiobookPlayer());
 
   useEffect(() => {
     readerSettingsRef.current = readerSettings;
   }, [readerSettings]);
 
+  // Set up audiobook player callbacks
+  useEffect(() => {
+    const player = audiobookPlayerRef.current;
+
+    player.onSegmentChange = (index, total, speaker) => {
+      updateTTSProgress(index, total);
+      updateTTSNotification({
+        novelName: novel?.name || 'Unknown',
+        chapterName: `${chapter.name} - ${speaker}`,
+        coverUri: novel?.cover || '',
+        isPlaying: true,
+      });
+    };
+
+    player.onFinished = () => {
+      isAudiobookActiveRef.current = false;
+      const autoAdvance =
+        readerSettingsRef.current.audiobook?.autoPageAdvance === true;
+      if (autoAdvance && nextChapter) {
+        autoStartAudiobookRef.current = true;
+        navigateChapter('NEXT');
+      } else {
+        dismissTTSNotification();
+        webViewRef.current?.injectJavaScript(
+          'if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }' +
+          'var c = document.getElementById("TTS-Controller");' +
+          'if (c && c.firstElementChild) { c.firstElementChild.innerHTML = volumnIcon; }',
+        );
+      }
+    };
+
+    player.onError = (error: Error) => {
+      isAudiobookActiveRef.current = false;
+      dismissTTSNotification();
+      webViewRef.current?.injectJavaScript(
+        'if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }' +
+        `alert('Audiobook Error: ${error.message.replace(/'/g, "\\'")}');`,
+      );
+    };
+
+    player.onStateChange = state => {
+      const isActive = state === 'playing' || state === 'paused';
+      isAudiobookActiveRef.current = isActive;
+      if (isActive) {
+        updateTTSPlaybackState(state === 'playing');
+      }
+    };
+
+    return () => {
+      player.stop();
+      player.onSegmentChange = undefined;
+      player.onFinished = undefined;
+      player.onError = undefined;
+      player.onStateChange = undefined;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapter.id, novel?.name, novel?.cover, chapter.name, nextChapter]);
+
   useEffect(() => {
     const playListener = ttsMediaEmitter.addListener('TTSPlay', () => {
-      webViewRef.current?.injectJavaScript(`
-        if (window.tts && !tts.reading) { tts.resume(); }
-      `);
+      if (isAudiobookActiveRef.current) {
+        audiobookPlayerRef.current.resume();
+      } else {
+        webViewRef.current?.injectJavaScript(`
+          if (window.tts && !tts.reading) { tts.resume(); }
+        `);
+      }
     });
     const pauseListener = ttsMediaEmitter.addListener('TTSPause', () => {
-      webViewRef.current?.injectJavaScript(`
-        if (window.tts && tts.reading) { tts.pause(); }
-      `);
+      if (isAudiobookActiveRef.current) {
+        audiobookPlayerRef.current.pause();
+      } else {
+        webViewRef.current?.injectJavaScript(`
+          if (window.tts && tts.reading) { tts.pause(); }
+        `);
+      }
     });
     const stopListener = ttsMediaEmitter.addListener('TTSStop', () => {
-      webViewRef.current?.injectJavaScript(`
-        if (window.tts) { tts.stop(); }
-      `);
+      if (isAudiobookActiveRef.current) {
+        audiobookPlayerRef.current.stop();
+        webViewRef.current?.injectJavaScript(
+          'if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }',
+        );
+      } else {
+        webViewRef.current?.injectJavaScript(`
+          if (window.tts) { tts.stop(); }
+        `);
+      }
     });
     const rewindListener = ttsMediaEmitter.addListener('TTSRewind', () => {
-      webViewRef.current?.injectJavaScript(`
-        if (window.tts && tts.started) { tts.rewind(); }
-      `);
+      if (isAudiobookActiveRef.current) {
+        audiobookPlayerRef.current.seekTo(0);
+      } else {
+        webViewRef.current?.injectJavaScript(`
+          if (window.tts && tts.started) { tts.rewind(); }
+        `);
+      }
     });
     const prevListener = ttsMediaEmitter.addListener('TTSPrev', () => {
-      webViewRef.current?.injectJavaScript(`
-        if (window.tts && window.reader && window.reader.prevChapter) {
-          window.reader.post({ type: 'prev', autoStartTTS: true });
-        }
-      `);
+      if (isAudiobookActiveRef.current) {
+        audiobookPlayerRef.current.stop();
+        webViewRef.current?.injectJavaScript(
+          'if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }',
+        );
+        autoStartAudiobookRef.current = true;
+        navigateChapter('PREV');
+      } else {
+        webViewRef.current?.injectJavaScript(`
+          if (window.tts && window.reader && window.reader.prevChapter) {
+            window.reader.post({ type: 'prev', autoStartTTS: true });
+          }
+        `);
+      }
     });
     const nextListener = ttsMediaEmitter.addListener('TTSNext', () => {
-      webViewRef.current?.injectJavaScript(`
-        if (window.tts && window.reader && window.reader.nextChapter) {
-          window.reader.post({ type: 'next', autoStartTTS: true });
-        }
-      `);
+      if (isAudiobookActiveRef.current) {
+        audiobookPlayerRef.current.stop();
+        webViewRef.current?.injectJavaScript(
+          'if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }',
+        );
+        autoStartAudiobookRef.current = true;
+        navigateChapter('NEXT');
+      } else {
+        webViewRef.current?.injectJavaScript(`
+          if (window.tts && window.reader && window.reader.nextChapter) {
+            window.reader.post({ type: 'next', autoStartTTS: true });
+          }
+        `);
+      }
     });
     const seekToListener = ttsMediaEmitter.addListener(
       'TTSSeekTo',
       (event: { position: number }) => {
         const position = event.position;
-        webViewRef.current?.injectJavaScript(`
-          if (window.tts && tts.started) { tts.seekTo(${position}); }
-        `);
+        if (isAudiobookActiveRef.current) {
+          audiobookPlayerRef.current.seekTo(position);
+        } else {
+          webViewRef.current?.injectJavaScript(`
+            if (window.tts && tts.started) { tts.seekTo(${position}); }
+          `);
+        }
       },
     );
     return () => {
@@ -168,6 +271,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
       nextListener.remove();
       seekToListener.remove();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [webViewRef]);
 
   useEffect(() => {
@@ -183,6 +287,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
 
   useEffect(() => {
     return () => {
+      audiobookPlayerRef.current.stop();
       dismissTTSNotification();
     };
   }, []);
@@ -220,13 +325,26 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
             `,
           );
           break;
-        case CHAPTER_GENERAL_SETTINGS:
+        case CHAPTER_GENERAL_SETTINGS: {
+          const newGeneralSettings =
+            getMMKVObject<ChapterGeneralSettings>(CHAPTER_GENERAL_SETTINGS) ||
+            initialChapterGeneralSettings;
+          // Stop audiobook if it was disabled
+          if (
+            !newGeneralSettings.AudiobookEnable &&
+            isAudiobookActiveRef.current
+          ) {
+            audiobookPlayerRef.current.stop();
+            isAudiobookActiveRef.current = false;
+            dismissTTSNotification();
+          }
           webViewRef.current?.injectJavaScript(
             `reader.generalSettings.val = ${MMKVStorage.getString(
               CHAPTER_GENERAL_SETTINGS,
             )}`,
           );
           break;
+        }
       }
     });
 
@@ -344,6 +462,25 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
             `);
           }, 300);
         }
+
+        if (autoStartAudiobookRef.current) {
+          autoStartAudiobookRef.current = false;
+          setTimeout(() => {
+            webViewRef.current?.injectJavaScript(`
+              (function() {
+                if (window.audiobook && reader.generalSettings.val.AudiobookEnable) {
+                  setTimeout(() => {
+                    audiobook.start();
+                    var controller = document.getElementById('TTS-Controller');
+                    if (controller && controller.firstElementChild) {
+                      controller.firstElementChild.innerHTML = pauseIcon;
+                    }
+                  }, 500);
+                }
+              })();
+            `);
+          }, 300);
+        }
       }}
       onMessage={(ev: { nativeEvent: { data: string } }) => {
         __DEV__ && onLogMessage(ev);
@@ -440,6 +577,33 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
               isTTSReadingRef.current = isReading;
               updateTTSPlaybackState(isReading);
             }
+            break;
+          case 'audiobook-start':
+            if (event.data && typeof event.data === 'string') {
+              isAudiobookActiveRef.current = true;
+              showTTSNotification({
+                novelName: novel?.name || 'Unknown',
+                chapterName: chapter.name,
+                coverUri: novel?.cover || '',
+                isPlaying: true,
+              });
+              audiobookPlayerRef.current.startChapter(
+                event.data,
+                chapter.id,
+                String(novel?.id || ''),
+              );
+            }
+            break;
+          case 'audiobook-pause':
+            audiobookPlayerRef.current.pause();
+            break;
+          case 'audiobook-resume':
+            audiobookPlayerRef.current.resume();
+            break;
+          case 'audiobook-stop':
+            audiobookPlayerRef.current.stop();
+            isAudiobookActiveRef.current = false;
+            dismissTTSNotification();
             break;
         }
       }}

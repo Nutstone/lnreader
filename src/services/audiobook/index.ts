@@ -1,4 +1,6 @@
 export { AudiobookPipeline } from './pipeline';
+export { AudiobookPlayer } from './AudiobookPlayer';
+export type { AudiobookState } from './AudiobookPlayer';
 export { LLMAnnotator } from './llmAnnotator';
 export { VoiceBlender } from './voiceBlender';
 export { TTSRenderer } from './ttsRenderer';
