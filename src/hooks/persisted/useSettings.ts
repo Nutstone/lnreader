@@ -12,6 +12,16 @@ export const BROWSE_SETTINGS = 'BROWSE_SETTINGS';
 export const LIBRARY_SETTINGS = 'LIBRARY_SETTINGS';
 export const CHAPTER_GENERAL_SETTINGS = 'CHAPTER_GENERAL_SETTINGS';
 export const CHAPTER_READER_SETTINGS = 'CHAPTER_READER_SETTINGS';
+export const AUDIOBOOK_SETTINGS = 'AUDIOBOOK_SETTINGS';
+
+export interface AudiobookSettings {
+  llmProvider: 'anthropic' | 'gemini' | 'ollama';
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+  ttsQuality: 'q4' | 'q8' | 'fp16';
+  sampleRate: number;
+}
 
 export interface AppSettings {
   /**
@@ -90,6 +100,7 @@ export interface ChapterGeneralSettings {
   bionicReading: boolean;
   tapToScroll: boolean;
   TTSEnable: boolean;
+  AudiobookEnable: boolean;
 }
 
 export interface ReaderTheme {
@@ -114,6 +125,9 @@ export interface ChapterReaderSettings {
     pitch?: number;
     autoPageAdvance?: boolean;
     scrollToTop?: boolean;
+  };
+  audiobook?: {
+    autoPageAdvance?: boolean;
   };
   epubLocation: string;
   epubUseAppTheme: boolean;
@@ -186,6 +200,7 @@ export const initialChapterGeneralSettings: ChapterGeneralSettings = {
   bionicReading: false,
   tapToScroll: false,
   TTSEnable: true,
+  AudiobookEnable: false,
 };
 
 export const initialChapterReaderSettings: ChapterReaderSettings = {
@@ -204,6 +219,9 @@ export const initialChapterReaderSettings: ChapterReaderSettings = {
     pitch: 1,
     autoPageAdvance: false,
     scrollToTop: true,
+  },
+  audiobook: {
+    autoPageAdvance: false,
   },
   epubLocation: '',
   epubUseAppTheme: false,
@@ -278,7 +296,7 @@ export const useChapterReaderSettings = () => {
   const [storedSettings = initialChapterReaderSettings, setSettings] =
     useMMKVObject<ChapterReaderSettings>(CHAPTER_READER_SETTINGS);
 
-  // Ensure TTS settings have proper defaults (migration for existing users)
+  // Ensure TTS and audiobook settings have proper defaults (migration for existing users)
   const chapterReaderSettings = {
     ...storedSettings,
     tts: {
@@ -289,6 +307,11 @@ export const useChapterReaderSettings = () => {
       scrollToTop: storedSettings.tts?.scrollToTop ?? true,
       rate: storedSettings.tts?.rate ?? 1,
       pitch: storedSettings.tts?.pitch ?? 1,
+    },
+    audiobook: {
+      ...initialChapterReaderSettings.audiobook,
+      ...storedSettings.audiobook,
+      autoPageAdvance: storedSettings.audiobook?.autoPageAdvance ?? false,
     },
   };
 

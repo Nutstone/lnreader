@@ -192,10 +192,11 @@ const TTSTab: React.FC = () => {
   const theme = useTheme();
   const {
     TTSEnable = true,
+    AudiobookEnable = false,
     setChapterGeneralSettings,
   } = useChapterGeneralSettings();
 
-  const { tts, setChapterReaderSettings } = useChapterReaderSettings();
+  const { tts, audiobook, setChapterReaderSettings } = useChapterReaderSettings();
   const [voices, setVoices] = useState<Voice[]>([]);
   const [voiceModalVisible, setVoiceModalVisible] = useState(false);
 
@@ -224,7 +225,10 @@ const TTSTab: React.FC = () => {
             label="Enable TTS"
             value={TTSEnable}
             onPress={() =>
-              setChapterGeneralSettings({ TTSEnable: !TTSEnable })
+              setChapterGeneralSettings({
+                TTSEnable: !TTSEnable,
+                ...((!TTSEnable) && { AudiobookEnable: false }),
+              })
             }
             theme={theme}
           />
@@ -322,6 +326,38 @@ const TTSTab: React.FC = () => {
                 />
               </View>
             </>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <List.SubHeader theme={theme}>Audiobook</List.SubHeader>
+
+          <ReaderSheetPreferenceItem
+            label="Enable Audiobook"
+            value={AudiobookEnable}
+            onPress={() =>
+              setChapterGeneralSettings({
+                AudiobookEnable: !AudiobookEnable,
+                ...(!AudiobookEnable && { TTSEnable: false }),
+              })
+            }
+            theme={theme}
+          />
+
+          {AudiobookEnable && (
+            <ReaderSheetPreferenceItem
+              label="Auto Page Advance"
+              value={audiobook?.autoPageAdvance === true}
+              onPress={() =>
+                setChapterReaderSettings({
+                  audiobook: {
+                    ...audiobook,
+                    autoPageAdvance: !(audiobook?.autoPageAdvance === true),
+                  },
+                })
+              }
+              theme={theme}
+            />
           )}
         </View>
 

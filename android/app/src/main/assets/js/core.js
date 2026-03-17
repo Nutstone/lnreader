@@ -474,6 +474,43 @@ van.derive(() => {
   }
 });
 
+// Audiobook playback control (uses native AudiobookPlayer via postMessage)
+window.audiobook = {
+  started: false,
+  playing: false,
+  start: function () {
+    this.started = true;
+    this.playing = true;
+    var text = reader.chapterElement.innerText;
+    reader.post({ type: 'audiobook-start', data: text });
+  },
+  pause: function () {
+    this.playing = false;
+    reader.post({ type: 'audiobook-pause' });
+    reader.post({ type: 'tts-state', data: { isReading: false } });
+  },
+  resume: function () {
+    this.playing = true;
+    reader.post({ type: 'audiobook-resume' });
+    reader.post({ type: 'tts-state', data: { isReading: true } });
+  },
+  stop: function () {
+    this.started = false;
+    this.playing = false;
+    reader.post({ type: 'audiobook-stop' });
+    reader.post({ type: 'tts-state', data: { isReading: false } });
+  },
+};
+
+// Watch for AudiobookEnable changes and stop audiobook when disabled
+van.derive(() => {
+  if (!reader.generalSettings.val.AudiobookEnable && window.audiobook) {
+    if (audiobook.started || audiobook.playing) {
+      audiobook.stop();
+    }
+  }
+});
+
 window.pageReader = new (function () {
   this.page = van.state(0);
   this.totalPages = van.state(0);
