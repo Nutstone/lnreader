@@ -90,10 +90,44 @@ v1 build. Read `DECISIONS.md` first if anything below feels surprising.
 | `streamingParser` | extractor; balanced-JSON; streaming parser |
 | `emotionModulation` | reserved-speaker capping |
 | `pricing` | recommended models; lookup |
-| Renderer integration | Manual / device only |
-| LLM provider calls | Mocked future; not in v1 |
+| `llmAnnotator` | Anthropic + Ollama request shapes; `cache_control` toggling; 429 retry; 401 fail-fast; missing-key error; tool_use unwrap; text-block fallback (9 cases) |
+| `pipeline` | cache reuse on second run; path-hash keying survives plugin reorder; glossary discovery extends voice map; cost estimate (free for Ollama, non-zero for Anthropic) (6 cases) |
+| Renderer in WebView | Validated by `scripts/audiobook-smoke.mjs` running the same monkey-patch in Node |
+| Real device playback | Manual QA only |
 
-`pnpm jest --testPathPattern src/services/audiobook` → 65 tests passing.
+`pnpm jest --testPathPattern src/services/audiobook` → 80 tests passing.
+Full suite (`pnpm jest`) → 279 tests across 20 suites passing, no
+regressions.
+
+## Runtime smoke
+
+`node scripts/audiobook-smoke.mjs` loads the same `kokoro-js` package
+the WebView host loads, applies the monkey-patch we ship, and produces
+WAV files for 5 character archetypes plus a blend-vs-pure comparison.
+The blend↔pure mean-abs-diff per sample is ≈0.057 — clearly distinct.
+
+This script is the source of truth for "does Kokoro work + does our
+blending change the output". Run it after every kokoro-js bump.
+
+## Bugs caught and fixed during runtime testing
+
+(May 2026 — `kokoro-js` v1.2.1)
+
+- **`q8f16` is not a valid dtype.** kokoro-js v1.2.1 only accepts
+  `fp32` / `fp16` / `q8` / `q4` / `q4f16`. Default changed to `q8`
+  (~92 MB). The voice-quality picker in settings exposes the real
+  options.
+- **The `id:weight,id:weight` blend string is rejected by the public
+  API.** kokoro-js's `_validate_voice` checks the static catalog and
+  rejects unknown ids. Voice blending requires going through the
+  lower-level `generate_from_ids` with a pre-blended style tensor.
+  The WebView host monkey-patches both methods.
+- **`Tensor` and `RawAudio` cannot be re-imported from
+  `@huggingface/transformers`** in the same process — it triggers a
+  phonemizer Emscripten init crash. The fix is to sniff the
+  constructors from the live `tts` instance (already-tokenised
+  `input_ids` carries the Tensor class on its prototype; a regular
+  `generate()` result carries RawAudio on its prototype).
 
 ## What's NOT in v1 (and should not be added without re-discussion)
 
