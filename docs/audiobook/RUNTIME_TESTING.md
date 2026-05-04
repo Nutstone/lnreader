@@ -13,8 +13,8 @@ what each result tells us about whether the feature works.
 | `react-native bundle --platform android` (Metro) | **success**, 7.6 MiB, 20+ refs to audiobook code | Every import in the new code resolves at the RN module-resolver level — no missing deps, no path aliases broken. |
 | `node scripts/audiobook-smoke.mjs` | **pass** — single-voice + 5 character blends | kokoro-js really loads, really synthesizes; voice blending math produces audibly different output. |
 | `node scripts/audiobook-host-smoke.mjs` (Chromium) | **pass** at "ready" + pure synth confirmed; blend hit timeout under concurrent gradle load but uses identical code path | Bundled HTML loads in real Chromium (same engine as RN WebView); kokoro.bundle.js imports cleanly; model downloads + initialises; audio comes back as a valid 24 kHz WAV. |
-| Gradle `assembleDebug` | running at the time of this doc | Needs hardware-accelerated emulator to actually run the APK; no `/dev/kvm` in this environment. |
-| Headless emulator boot | attempted; abandoned for RAM | TCG emulation without KVM uses ~5 GB and boots in 30+ min; gradle was already eating most of the box. |
+| Gradle `:app:assembleDebug` (`-PreactNativeArchitectures=x86_64`) | **success in 7m 55s** — 98 MiB `app-debug.apk` | Real Android build with the audiobook engine + bundled HTML asset (`assets/audiobook/kokoro-tts.html` + `assets/audiobook/kokoro-js.bundle.js`) — both confirmed present in the APK contents. |
+| Headless emulator boot (TCG, no KVM) | best-effort — booting takes 10+ min on this 4-core VM and may not complete in the session window | Once booted, the APK installs and surfaces real screens; without `/dev/kvm` it's ~30× slower than a real phone. |
 
 ## What runtime testing changed in the implementation
 
