@@ -66,7 +66,7 @@ export interface RendererCapabilities {
   dtype?: string;
 }
 
-export type KokoroDtype = 'q4' | 'q8' | 'q8f16' | 'fp16';
+export type KokoroDtype = 'q4' | 'q4f16' | 'q8' | 'fp16' | 'fp32';
 
 export function effectiveSpeed(
   baseSpeed: number,

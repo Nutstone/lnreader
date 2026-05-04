@@ -77,7 +77,7 @@ export class KokoroWebViewRenderer implements ITTSRenderer {
   private unsubscribe: (() => void) | null = null;
   private nextId = 1;
 
-  constructor(private readonly dtype: KokoroDtype = 'q8f16') {}
+  constructor(private readonly dtype: KokoroDtype = 'q8') {}
 
   capabilities(): RendererCapabilities {
     return {

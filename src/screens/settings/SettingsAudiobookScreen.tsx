@@ -253,7 +253,7 @@ const AudiobookSettingsScreen = ({ navigation }: AudiobookSettingsScreenProps) =
 
         <Section title="Voice quality" theme={theme}>
           <View style={styles.chipRow}>
-            {(['q4', 'q8', 'q8f16', 'fp16'] as const).map(q => (
+            {(['q4', 'q4f16', 'q8', 'fp16', 'fp32'] as const).map(q => (
               <Chip
                 key={q}
                 label={q}
@@ -264,8 +264,8 @@ const AudiobookSettingsScreen = ({ navigation }: AudiobookSettingsScreenProps) =
             ))}
           </View>
           <Text style={[styles.help, { color: theme.onSurfaceVariant }]}>
-            Trade-off between size and quality. q8f16 (~86 MB) is the
-            recommended default for most phones.
+            Trade-off between size and quality. q8 is the default
+            recommended for most phones.
           </Text>
         </Section>
 

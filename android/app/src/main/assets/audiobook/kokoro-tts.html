@@ -11,169 +11,246 @@
 </head>
 <body>
 <div id="status">Kokoro TTS host — initialising…</div>
-<script>
+<script type="module">
 /*
-  Kokoro TTS host page.
+  Kokoro TTS host page (RN WebView).
 
-  This page runs inside a hidden RN WebView. The RN side posts JSON
-  messages of the form:
-
-    { type: 'init', modelDtype: 'q8' | 'q8f16' | 'fp16' | 'q4' }
+  Receives JSON messages from the RN side:
+    { type: 'init', modelDtype: 'q8' | 'q4' | 'q4f16' | 'fp16' | 'fp32' }
     { type: 'synthesize', id, text, voice, speed }
     { type: 'dispose' }
 
-  The page emits:
+  voice can be either a single voice id ('af_bella') or a blend string
+  ('af_bella:50,af_nova:30,af_jessica:20'). Blend strings are handled by
+  loading each voice's style vector, weighted-averaging, and feeding the
+  blended style into the model — kokoro-js's public API only accepts
+  single voice ids, so we monkey-patch generate_from_ids.
 
+  Emits:
     { type: 'ready' }
-    { type: 'progress', loaded, total }
+    { type: 'progress', loaded, total, status }
     { type: 'audio', id, sampleRate, pcmBase64, durationMs }
     { type: 'error', id?, message }
-
-  Audio is returned as 16-bit-PCM WAV bytes encoded in base64 — the RN
-  side writes it to a file and hands the file URI to expo-av.
-
-  Loaded by services/audiobook/renderers/KokoroWebViewRenderer.ts.
 */
 
-(function () {
-  var post = function (msg) {
-    try {
+const post = msg => {
+  try {
+    if (window.ReactNativeWebView) {
       window.ReactNativeWebView.postMessage(JSON.stringify(msg));
-    } catch (e) {
-      console.error('postMessage failed:', e);
     }
-  };
-
-  var setStatus = function (s) {
-    var el = document.getElementById('status');
-    if (el) el.textContent = s;
-  };
-
-  var tts = null;
-
-  async function ensureLoaded(modelDtype) {
-    if (tts) return tts;
-    setStatus('Loading kokoro-js …');
-    // kokoro-js is bundled by the RN side via metro/babel and made
-    // available via a `window.kokoroJs` shim. If not present, fall back
-    // to dynamic import from a relative URL.
-    var KokoroTTS;
-    if (window.kokoroJs && window.kokoroJs.KokoroTTS) {
-      KokoroTTS = window.kokoroJs.KokoroTTS;
-    } else {
-      var mod = await import('./kokoro-js.bundle.js');
-      KokoroTTS = mod.KokoroTTS;
-    }
-    setStatus('Downloading model…');
-    tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
-      dtype: modelDtype || 'q8f16',
-      progress_callback: function (p) {
-        post({ type: 'progress', loaded: p.loaded || 0, total: p.total || 0, status: p.status || '' });
-      },
-    });
-    setStatus('Ready');
-    post({ type: 'ready' });
-    return tts;
+  } catch (e) {
+    console.error('postMessage failed:', e);
   }
+};
 
-  // Convert a Float32Array PCM to a 16-bit WAV ArrayBuffer.
-  function floatsToWav(samples, sampleRate) {
-    var numChannels = 1;
-    var bytesPerSample = 2;
-    var dataLen = samples.length * bytesPerSample;
-    var buffer = new ArrayBuffer(44 + dataLen);
-    var view = new DataView(buffer);
-    function writeStr(off, s) {
-      for (var i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
-    }
-    writeStr(0, 'RIFF');
-    view.setUint32(4, 36 + dataLen, true);
-    writeStr(8, 'WAVE');
-    writeStr(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); // PCM
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * numChannels * bytesPerSample, true);
-    view.setUint16(32, numChannels * bytesPerSample, true);
-    view.setUint16(34, 16, true);
-    writeStr(36, 'data');
-    view.setUint32(40, dataLen, true);
+const setStatus = s => {
+  const el = document.getElementById('status');
+  if (el) el.textContent = s;
+};
 
-    var off = 44;
-    for (var i = 0; i < samples.length; i++) {
-      var s = Math.max(-1, Math.min(1, samples[i]));
-      view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-      off += 2;
-    }
-    return buffer;
+const VOICES_URL = 'https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/';
+const styleCache = new Map();
+
+async function loadStyleVector(voiceId) {
+  if (styleCache.has(voiceId)) return styleCache.get(voiceId);
+  const resp = await fetch(VOICES_URL + voiceId + '.bin');
+  if (!resp.ok) throw new Error('voice ' + voiceId + ': ' + resp.status);
+  const buf = await resp.arrayBuffer();
+  const arr = new Float32Array(buf);
+  styleCache.set(voiceId, arr);
+  return arr;
+}
+
+function blendStyles(slices, weights) {
+  const total = weights.reduce((s, w) => s + w, 0);
+  const out = new Float32Array(256);
+  for (let v = 0; v < slices.length; v++) {
+    const w = weights[v] / total;
+    const s = slices[v];
+    for (let i = 0; i < 256; i++) out[i] += s[i] * w;
   }
+  return out;
+}
 
-  function arrayBufferToBase64(buffer) {
-    var bytes = new Uint8Array(buffer);
-    var CHUNK = 0x8000;
-    var bin = '';
-    for (var i = 0; i < bytes.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-    }
-    return btoa(bin);
+let tts = null;
+
+async function ensureLoaded(modelDtype) {
+  if (tts) return tts;
+  setStatus('Loading kokoro-js …');
+  // kokoro-js loaded from a bundle. The RN side ships a UMD bundle as a
+  // sibling file; if absent, fall back to ESM dynamic import from the
+  // same directory.
+  let KokoroTTS;
+  if (window.kokoroJs && window.kokoroJs.KokoroTTS) {
+    KokoroTTS = window.kokoroJs.KokoroTTS;
+  } else {
+    const mod = await import('./kokoro-js.bundle.js');
+    KokoroTTS = mod.KokoroTTS;
   }
-
-  async function synthesize(req) {
-    try {
-      var t = await ensureLoaded(req.modelDtype);
-      setStatus('Rendering segment…');
-      var audio = await t.generate(req.text, {
-        voice: req.voice,
-        speed: req.speed || 1.0,
-      });
-      // kokoro-js audio is { audio: Float32Array, sampling_rate: number }
-      var samples = audio.audio || audio;
-      var sampleRate = audio.sampling_rate || audio.sample_rate || 24000;
-      var wav = floatsToWav(samples, sampleRate);
-      var pcmBase64 = arrayBufferToBase64(wav);
-      var durationMs = Math.round((samples.length / sampleRate) * 1000);
+  setStatus('Downloading model…');
+  tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
+    dtype: modelDtype || 'q8',
+    progress_callback: p => {
       post({
-        type: 'audio',
-        id: req.id,
-        sampleRate: sampleRate,
-        pcmBase64: pcmBase64,
-        durationMs: durationMs,
+        type: 'progress',
+        loaded: p.loaded || 0,
+        total: p.total || 0,
+        status: p.status || '',
       });
-    } catch (e) {
-      post({ type: 'error', id: req.id, message: (e && e.message) || String(e) });
+    },
+  });
+  setStatus('Warming up…');
+  // Warmup also primes the constructor sniffing for blending.
+  await tts.generate('Ready.', { voice: 'af_bella', speed: 1.0 });
+  patchKokoroForBlending(tts);
+  setStatus('Ready');
+  post({ type: 'ready' });
+  return tts;
+}
+
+function patchKokoroForBlending(t) {
+  // Sniff Tensor + RawAudio from the live instance — avoids importing
+  // transformers separately (which causes a phonemizer init crash).
+  const sample = t.tokenizer('a', { truncation: true });
+  const TensorCtor = sample.input_ids.constructor;
+  // We can sniff RawAudio after generate(); fetch from a do-nothing call.
+  let RawAudioCtor = null;
+
+  const origValidate = t._validate_voice.bind(t);
+  t._validate_voice = function (voice) {
+    if (typeof voice === 'string' && voice.includes(':')) {
+      const firstId = voice.split(',')[0].split(':')[0].trim();
+      return origValidate(firstId);
     }
+    return origValidate(voice);
+  };
+
+  const origGenerateFromIds = t.generate_from_ids.bind(t);
+  t.generate_from_ids = async function (input_ids, opts = {}) {
+    const { voice = 'af_heart', speed = 1 } = opts;
+    if (typeof voice !== 'string' || !voice.includes(':')) {
+      const result = await origGenerateFromIds(input_ids, opts);
+      if (!RawAudioCtor) RawAudioCtor = result.constructor;
+      return result;
+    }
+    if (!RawAudioCtor) {
+      // Lazy: do one normal call to populate RawAudioCtor.
+      const dummy = await origGenerateFromIds(input_ids, { voice: 'af_heart', speed });
+      RawAudioCtor = dummy.constructor;
+    }
+    const components = voice.split(',').map(s => {
+      const [id, w] = s.split(':');
+      return { id: id.trim(), weight: Number(w) };
+    });
+    const len = input_ids.dims.at(-1);
+    const offset = 256 * Math.min(Math.max(len - 2, 0), 509);
+    const slices = await Promise.all(
+      components.map(c =>
+        loadStyleVector(c.id).then(arr => arr.slice(offset, offset + 256)),
+      ),
+    );
+    const blended = blendStyles(slices, components.map(c => c.weight));
+    const styleTensor = new TensorCtor('float32', blended, [1, 256]);
+    const speedTensor = new TensorCtor('float32', [speed], [1]);
+    const { waveform } = await t.model({
+      input_ids,
+      style: styleTensor,
+      speed: speedTensor,
+    });
+    return new RawAudioCtor(waveform.data, 24000);
+  };
+}
+
+// Float32 PCM → 16-bit WAV ArrayBuffer.
+function floatsToWav(samples, sampleRate) {
+  const bps = 2;
+  const dataLen = samples.length * bps;
+  const buffer = new ArrayBuffer(44 + dataLen);
+  const view = new DataView(buffer);
+  const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataLen, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bps, true);
+  view.setUint16(32, bps, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, dataLen, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
   }
+  return buffer;
+}
 
-  document.addEventListener('message', onRNMessage); // iOS
-  window.addEventListener('message', onRNMessage); // Android
-
-  function onRNMessage(ev) {
-    var raw = typeof ev.data === 'string' ? ev.data : ev.data && ev.data.toString();
-    if (!raw) return;
-    var msg;
-    try {
-      msg = JSON.parse(raw);
-    } catch (e) {
-      post({ type: 'error', message: 'malformed: ' + raw });
-      return;
-    }
-    if (msg.type === 'init') {
-      ensureLoaded(msg.modelDtype).catch(function (e) {
-        post({ type: 'error', message: e && e.message ? e.message : String(e) });
-      });
-    } else if (msg.type === 'synthesize') {
-      synthesize(msg);
-    } else if (msg.type === 'dispose') {
-      tts = null;
-      setStatus('Disposed');
-    }
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const CHUNK = 0x8000;
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
   }
+  return btoa(bin);
+}
 
-  // Also listen for `window.audiobookKokoro = { synthesize: fn }` so
-  // tests that don't go through postMessage can drive synthesis.
-  window.audiobookKokoro = { synthesize: synthesize, ensureLoaded: ensureLoaded };
-})();
+async function synthesize(req) {
+  try {
+    const t = await ensureLoaded(req.modelDtype);
+    setStatus('Rendering…');
+    const audio = await t.generate(req.text, {
+      voice: req.voice,
+      speed: req.speed || 1.0,
+    });
+    const samples = audio.audio;
+    const sampleRate = audio.sampling_rate || 24000;
+    const wav = floatsToWav(samples, sampleRate);
+    const pcmBase64 = arrayBufferToBase64(wav);
+    const durationMs = Math.round((samples.length / sampleRate) * 1000);
+    post({
+      type: 'audio',
+      id: req.id,
+      sampleRate: sampleRate,
+      pcmBase64: pcmBase64,
+      durationMs: durationMs,
+    });
+  } catch (e) {
+    post({
+      type: 'error',
+      id: req.id,
+      message: (e && e.message) || String(e),
+    });
+  }
+}
+
+document.addEventListener('message', onRNMessage); // iOS
+window.addEventListener('message', onRNMessage); // Android
+
+function onRNMessage(ev) {
+  const raw = typeof ev.data === 'string' ? ev.data : ev.data && ev.data.toString();
+  if (!raw) return;
+  let msg;
+  try { msg = JSON.parse(raw); } catch { post({ type: 'error', message: 'malformed: ' + raw }); return; }
+  if (msg.type === 'init') {
+    ensureLoaded(msg.modelDtype).catch(e =>
+      post({ type: 'error', message: e && e.message ? e.message : String(e) }),
+    );
+  } else if (msg.type === 'synthesize') {
+    synthesize(msg);
+  } else if (msg.type === 'dispose') {
+    tts = null;
+    setStatus('Disposed');
+  }
+}
+
+// Test hooks for dev tools.
+window.audiobookKokoro = { synthesize, ensureLoaded, loadStyleVector };
 </script>
 </body>
 </html>

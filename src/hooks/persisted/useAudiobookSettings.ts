@@ -24,9 +24,9 @@ export interface AudiobookSettings {
   enablePromptCaching: boolean;
   /**
    * Kokoro model dtype — quality/speed/size trade-off.
-   * Default 'q8f16' (~86 MB).
+   * Default 'q8'.
    */
-  ttsDtype: 'q4' | 'q8' | 'q8f16' | 'fp16';
+  ttsDtype: 'q4' | 'q4f16' | 'q8' | 'fp16' | 'fp32';
   /** Number of segments rendered ahead of playback (1..6). */
   lookaheadSegments: number;
   /** Auto-advance to next chapter when finished. */
@@ -43,7 +43,7 @@ const initialSettings: AudiobookSettings = {
   baseUrl: 'http://localhost:11434',
   model: '',
   enablePromptCaching: true,
-  ttsDtype: 'q8f16',
+  ttsDtype: 'q8',
   lookaheadSegments: 3,
   autoAdvanceChapter: true,
   emotionShaping: true,

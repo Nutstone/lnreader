@@ -96,7 +96,7 @@ class AudiobookPlayerService {
 
   private getRenderer(): ITTSRenderer {
     if (!this.renderer) {
-      this.renderer = new KokoroWebViewRenderer('q8f16');
+      this.renderer = new KokoroWebViewRenderer('q8');
     }
     return this.renderer;
   }
