@@ -29,6 +29,8 @@ export type RootStackParamList = {
     pluginId: string;
     isNovel?: boolean;
   };
+  AudiobookPlayer: undefined;
+  AudiobookGlossary: { novelId: string; novelName: string };
 };
 
 export type BottomNavigatorParamList = {

@@ -84,6 +84,9 @@ const NovelAppbar = ({
   shareNovel,
   showJumpToChapterModal,
   headerOpacity,
+  audiobookChapters,
+  openGlossaryEditor,
+  clearAudiobookCache,
 }: {
   novel: NovelInfo | undefined;
   theme: ThemeColors;
@@ -97,6 +100,9 @@ const NovelAppbar = ({
   shareNovel: () => void;
   showJumpToChapterModal: (arg: boolean) => void;
   headerOpacity: SharedValue<number>;
+  audiobookChapters?: (amount: number | 'unread' | 'all') => void;
+  openGlossaryEditor?: () => void;
+  clearAudiobookCache?: () => void;
 }) => {
   const headerOpacityStyle = useAnimatedStyle(() => {
     const backgroundColor = interpolateColor(
@@ -110,6 +116,7 @@ const NovelAppbar = ({
   });
 
   const [downloadMenu, showDownloadMenu] = useState(false);
+  const [audiobookMenu, showAudiobookMenu] = useState(false);
   const [extraMenu, showExtraMenu] = useState(false);
 
   const appbarTheme = useMemo(
@@ -184,8 +191,52 @@ const NovelAppbar = ({
     [showEditInfoModal, setCustomNovelCover],
   );
 
+  const audiobookMenuItems = useMemo(() => {
+    if (!audiobookChapters) return [];
+    return [
+      {
+        label: getString('novelScreen.audiobook.next'),
+        onPress: () => audiobookChapters(1),
+      },
+      {
+        label: getString('novelScreen.audiobook.next5'),
+        onPress: () => audiobookChapters(5),
+      },
+      {
+        label: getString('novelScreen.audiobook.next10'),
+        onPress: () => audiobookChapters(10),
+      },
+      {
+        label: getString('novelScreen.audiobook.unread'),
+        onPress: () => audiobookChapters('unread'),
+      },
+      {
+        label: getString('common.all'),
+        onPress: () => audiobookChapters('all'),
+      },
+      ...(openGlossaryEditor
+        ? [
+            {
+              label: getString('novelScreen.audiobook.editCast'),
+              onPress: openGlossaryEditor,
+            },
+          ]
+        : []),
+      ...(clearAudiobookCache
+        ? [
+            {
+              label: getString('novelScreen.audiobook.clearCache'),
+              onPress: clearAudiobookCache,
+            },
+          ]
+        : []),
+    ];
+  }, [audiobookChapters, openGlossaryEditor, clearAudiobookCache]);
+
   const openDlMenu = useCallback(() => showDownloadMenu(true), []);
   const closeDlMenu = useCallback(() => showDownloadMenu(false), []);
+  const openAudiobookMenu = useCallback(() => showAudiobookMenu(true), []);
+  const closeAudiobookMenu = useCallback(() => showAudiobookMenu(false), []);
   const openExtraMenu = useCallback(() => showExtraMenu(true), []);
   const closeExtraMenu = useCallback(() => showExtraMenu(false), []);
 
@@ -229,6 +280,22 @@ const NovelAppbar = ({
                 />
               }
               items={downloadMenuItems}
+            />
+          ) : null}
+          {audiobookChapters && audiobookMenuItems.length > 0 ? (
+            <Menu
+              theme={theme}
+              visible={audiobookMenu}
+              onDismiss={closeAudiobookMenu}
+              anchor={
+                <Appbar.Action
+                  theme={appbarTheme}
+                  icon="headphones"
+                  onPress={openAudiobookMenu}
+                  size={26}
+                />
+              }
+              items={audiobookMenuItems}
             />
           ) : null}
           <Menu

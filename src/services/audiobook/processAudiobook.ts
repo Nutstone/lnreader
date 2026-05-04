@@ -1,5 +1,12 @@
+/**
+ * Background-task entry for audiobook annotation.
+ *
+ * Used by `AUDIOBOOK_PIPELINE` in `ServiceManager`. Annotates a batch
+ * of chapters; never renders audio (rendering happens at playback time
+ * inside the WebView host).
+ */
+
 import { getPlugin } from '@plugins/pluginManager';
-import { getChapter } from '@database/queries/ChapterQueries';
 import { BackgroundTaskMetadata } from '@services/ServiceManager';
 import { AudiobookPipeline } from './pipeline';
 import { AudiobookConfig } from './types';
@@ -25,25 +32,30 @@ export const processAudiobook = async (
     setMeta(meta => ({
       ...meta,
       isRunning: true,
-      progressText: `Processing ${data.novelName}...`,
+      progressText: `Audiobook · ${data.novelName} · starting…`,
     }));
 
     const settings = getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS);
+    if (!settings || (!settings.apiKey && settings.llmProvider === 'anthropic')) {
+      throw new Error(
+        'Audiobook is not configured. Add your Claude API key in Audiobook Settings.',
+      );
+    }
 
     const config: AudiobookConfig = {
+      novelId: String(data.novelId),
       llm: {
-        provider: settings?.llmProvider ?? 'gemini',
-        apiKey: settings?.apiKey || undefined,
-        baseUrl: settings?.baseUrl || undefined,
-        model: settings?.model || undefined,
+        provider: settings.llmProvider,
+        apiKey: settings.apiKey,
+        baseUrl: settings.baseUrl,
+        model: settings.model,
+        enablePromptCaching: settings.enablePromptCaching,
       },
       tts: {
-        dtype: settings?.ttsQuality ?? 'q8',
-        lookaheadSegments: settings?.lookaheadSegments ?? 2,
-        sampleRate: settings?.sampleRate ?? 24000,
+        playbackSpeed: 1.0,
+        emotionShaping: settings.emotionShaping,
+        lookaheadSegments: settings.lookaheadSegments,
       },
-      cacheDir: '',
-      novelId: String(data.novelId),
     };
 
     const pipeline = new AudiobookPipeline(config);
@@ -52,21 +64,23 @@ export const processAudiobook = async (
       throw new Error(`Plugin not found: ${data.pluginId}`);
     }
 
-    // Fetch chapter texts
-    const chapterTexts: string[] = [];
+    // Fetch chapter texts.
+    const chapters: { id: number; path: string; rawText: string; name?: string }[] = [];
     for (let i = 0; i < data.chapterIds.length; i++) {
       setMeta(meta => ({
         ...meta,
-        progressText: `Fetching chapter ${i + 1}/${data.chapterIds.length}...`,
+        progressText: `Fetching chapter ${i + 1}/${data.chapterIds.length}…`,
         progress: (i / data.chapterIds.length) * 0.1,
       }));
-
       const chapterText = await plugin.parseChapter(data.chapterPaths[i]);
-      chapterTexts.push(chapterText || '');
+      chapters.push({
+        id: data.chapterIds[i],
+        path: data.chapterPaths[i],
+        rawText: chapterText || '',
+      });
     }
 
-    // Run the pipeline
-    await pipeline.processNovel(chapterTexts, progress => {
+    await pipeline.processChapters(chapters, progress => {
       setMeta(meta => ({
         ...meta,
         progressText: progress.message,
@@ -78,7 +92,7 @@ export const processAudiobook = async (
       ...meta,
       progress: 1,
       isRunning: false,
-      progressText: `Finished processing ${data.novelName}`,
+      progressText: `Audiobook · ${data.novelName} · ready.`,
     }));
   } catch (error) {
     const message =
@@ -86,7 +100,7 @@ export const processAudiobook = async (
     setMeta(meta => ({
       ...meta,
       isRunning: false,
-      progressText: `Error processing ${data.novelName}: ${message}`,
+      progressText: `Audiobook · ${data.novelName} · ${message}`,
     }));
   }
 };
