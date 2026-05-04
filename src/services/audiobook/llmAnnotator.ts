@@ -9,10 +9,14 @@ import {
 import { buildGlossaryPrompt } from './prompts/glossaryBuilder';
 import { buildAnnotationPrompt } from './prompts/chapterAnnotator';
 
+// Default models. See docs/audiobook/LLM_INTEGRATION.md for rationale.
+// Prefer best-quality literary models — never default to Haiku 4.5 or to
+// stale aliases like sonnet-4-20250514 / gemini-2.0-flash. Users may
+// override per-provider via AudiobookSettings.model.
 const DEFAULT_MODELS: Record<LLMConfig['provider'], string> = {
-  anthropic: 'claude-sonnet-4-20250514',
-  gemini: 'gemini-2.0-flash',
-  ollama: 'llama3.1:8b',
+  anthropic: 'claude-sonnet-4-6',
+  gemini: 'gemini-2.5-pro',
+  ollama: 'llama3.1:70b',
 };
 
 const LLM_TIMEOUT = 60000;
