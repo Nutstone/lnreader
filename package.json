@@ -81,7 +81,7 @@
     "expo-localization": "~17.0.8",
     "expo-navigation-bar": "~5.0.10",
     "expo-notifications": "~0.32.16",
-    "expo-av": "~15.0.7",
+    "expo-av": "~16.0.7",
     "expo-speech": "~14.0.8",
     "kokoro-js": "^1.0.0",
     "expo-web-browser": "~15.0.10",

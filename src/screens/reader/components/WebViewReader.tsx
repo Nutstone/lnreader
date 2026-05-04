@@ -24,7 +24,8 @@ import {
 import { getBatteryLevelSync } from 'react-native-device-info';
 import * as Speech from 'expo-speech';
 import { PLUGIN_STORAGE } from '@utils/Storages';
-import { AudiobookPlayer } from '@services/audiobook/AudiobookPlayer';
+import { audiobookPlayer } from '@services/audiobook/AudiobookPlayer';
+import { useAudiobookSettings } from '@hooks/persisted/useAudiobookSettings';
 import { useChapterContext } from '../ChapterContext';
 import {
   showTTSNotification,
@@ -113,27 +114,42 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
   const appStateRef = useRef(AppState.currentState);
   const ttsQueueRef = useRef<string[]>([]);
   const ttsQueueIndexRef = useRef<number>(0);
-  const audiobookPlayerRef = useRef<AudiobookPlayer>(new AudiobookPlayer());
+  const audiobookSettings = useAudiobookSettings();
 
   useEffect(() => {
     readerSettingsRef.current = readerSettings;
   }, [readerSettings]);
 
-  // Set up audiobook player callbacks
+  // Subscribe to the global audiobook player. Updates highlighting,
+  // notification metadata, and auto-advance from a single subscription.
   useEffect(() => {
-    const player = audiobookPlayerRef.current;
+    let lastSegmentIndex = -1;
+    const unsubscribe = audiobookPlayer.subscribe(state => {
+      const isActive =
+        state.status === 'playing' ||
+        state.status === 'paused' ||
+        state.status === 'rendering' ||
+        state.status === 'loading';
+      isAudiobookActiveRef.current = isActive;
 
-    player.onSegmentChange = (index, total, speaker, text) => {
-      updateTTSProgress(index, total);
-      updateTTSNotification({
-        novelName: novel?.name || 'Unknown',
-        chapterName: `${chapter.name} - ${speaker}`,
-        coverUri: novel?.cover || '',
-        isPlaying: true,
-      });
-      // Highlight the current segment text in the WebView
-      if (text) {
-        const escaped = text
+      if (state.status === 'playing' || state.status === 'paused') {
+        updateTTSPlaybackState(state.status === 'playing');
+      }
+
+      if (
+        state.segmentIndex !== lastSegmentIndex &&
+        state.totalSegments > 0 &&
+        state.currentText
+      ) {
+        lastSegmentIndex = state.segmentIndex;
+        updateTTSProgress(state.segmentIndex, state.totalSegments);
+        updateTTSNotification({
+          novelName: novel?.name || 'Unknown',
+          chapterName: `${chapter.name} — ${state.currentSpeaker ?? ''}`,
+          coverUri: novel?.cover || '',
+          isPlaying: state.status === 'playing',
+        });
+        const escaped = state.currentText
           .replace(/\\/g, '\\\\')
           .replace(/'/g, "\\'")
           .replace(/\n/g, '\\n');
@@ -141,48 +157,34 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
           `if (window.audiobook && window.audiobook.highlightSegment) { audiobook.highlightSegment('${escaped}'); }`,
         );
       }
-    };
 
-    player.onFinished = () => {
-      isAudiobookActiveRef.current = false;
-      const autoAdvance =
-        readerSettingsRef.current.audiobook?.autoPageAdvance === true;
-      if (autoAdvance && nextChapter) {
-        autoStartAudiobookRef.current = true;
-        navigateChapter('NEXT');
-      } else {
+      if (state.status === 'idle' && lastSegmentIndex >= 0) {
+        // Just finished.
+        lastSegmentIndex = -1;
+        const autoAdvance =
+          readerSettingsRef.current.audiobook?.autoPageAdvance === true ||
+          audiobookSettings.autoAdvanceChapter === true;
+        if (autoAdvance && nextChapter) {
+          autoStartAudiobookRef.current = true;
+          navigateChapter('NEXT');
+        } else {
+          dismissTTSNotification();
+          webViewRef.current?.injectJavaScript(
+            'if (window.audiobook) { audiobook.stop(); }',
+          );
+        }
+      }
+
+      if (state.status === 'error' && state.error) {
         dismissTTSNotification();
         webViewRef.current?.injectJavaScript(
-          'if (window.audiobook) { audiobook.stop(); }' +
-          'var c = document.getElementById("TTS-Controller");' +
-          'if (c && c.firstElementChild) { c.firstElementChild.innerHTML = volumnIcon; }',
+          `if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }`,
         );
       }
-    };
-
-    player.onError = (error: Error) => {
-      isAudiobookActiveRef.current = false;
-      dismissTTSNotification();
-      webViewRef.current?.injectJavaScript(
-        'if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }' +
-        `alert('Audiobook Error: ${error.message.replace(/'/g, "\\'")}');`,
-      );
-    };
-
-    player.onStateChange = state => {
-      const isActive = state === 'playing' || state === 'paused';
-      isAudiobookActiveRef.current = isActive;
-      if (isActive) {
-        updateTTSPlaybackState(state === 'playing');
-      }
-    };
+    });
 
     return () => {
-      player.stop();
-      player.onSegmentChange = undefined;
-      player.onFinished = undefined;
-      player.onError = undefined;
-      player.onStateChange = undefined;
+      unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapter.id, novel?.name, novel?.cover, chapter.name, nextChapter]);
@@ -190,7 +192,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
   useEffect(() => {
     const playListener = ttsMediaEmitter.addListener('TTSPlay', () => {
       if (isAudiobookActiveRef.current) {
-        audiobookPlayerRef.current.resume();
+        audiobookPlayer.resume();
       } else {
         webViewRef.current?.injectJavaScript(`
           if (window.tts && !tts.reading) { tts.resume(); }
@@ -199,7 +201,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
     });
     const pauseListener = ttsMediaEmitter.addListener('TTSPause', () => {
       if (isAudiobookActiveRef.current) {
-        audiobookPlayerRef.current.pause();
+        audiobookPlayer.pause();
       } else {
         webViewRef.current?.injectJavaScript(`
           if (window.tts && tts.reading) { tts.pause(); }
@@ -208,7 +210,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
     });
     const stopListener = ttsMediaEmitter.addListener('TTSStop', () => {
       if (isAudiobookActiveRef.current) {
-        audiobookPlayerRef.current.stop();
+        audiobookPlayer.stop();
         webViewRef.current?.injectJavaScript(
           'if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }',
         );
@@ -220,7 +222,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
     });
     const rewindListener = ttsMediaEmitter.addListener('TTSRewind', () => {
       if (isAudiobookActiveRef.current) {
-        audiobookPlayerRef.current.seekTo(0);
+        audiobookPlayer.seekToSegment(0);
       } else {
         webViewRef.current?.injectJavaScript(`
           if (window.tts && tts.started) { tts.rewind(); }
@@ -229,7 +231,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
     });
     const prevListener = ttsMediaEmitter.addListener('TTSPrev', () => {
       if (isAudiobookActiveRef.current) {
-        audiobookPlayerRef.current.stop();
+        audiobookPlayer.stop();
         webViewRef.current?.injectJavaScript(
           'if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }',
         );
@@ -245,7 +247,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
     });
     const nextListener = ttsMediaEmitter.addListener('TTSNext', () => {
       if (isAudiobookActiveRef.current) {
-        audiobookPlayerRef.current.stop();
+        audiobookPlayer.stop();
         webViewRef.current?.injectJavaScript(
           'if (window.audiobook) { audiobook.started = false; audiobook.playing = false; }',
         );
@@ -264,7 +266,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
       (event: { position: number }) => {
         const position = event.position;
         if (isAudiobookActiveRef.current) {
-          audiobookPlayerRef.current.seekTo(position);
+          audiobookPlayer.seekToSegment(position);
         } else {
           webViewRef.current?.injectJavaScript(`
             if (window.tts && tts.started) { tts.seekTo(${position}); }
@@ -297,7 +299,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
 
   useEffect(() => {
     return () => {
-      audiobookPlayerRef.current.stop();
+      audiobookPlayer.stop();
       dismissTTSNotification();
     };
   }, []);
@@ -344,7 +346,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
             !newGeneralSettings.AudiobookEnable &&
             isAudiobookActiveRef.current
           ) {
-            audiobookPlayerRef.current.stop();
+            audiobookPlayer.stop();
             isAudiobookActiveRef.current = false;
             dismissTTSNotification();
           }
@@ -597,21 +599,45 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
                 coverUri: novel?.cover || '',
                 isPlaying: true,
               });
-              audiobookPlayerRef.current.startChapter(
+              audiobookPlayer.playChapter(
+                {
+                  novelId: String(novel?.id ?? ''),
+                  llm: {
+                    provider: audiobookSettings.llmProvider,
+                    apiKey: audiobookSettings.apiKey,
+                    baseUrl: audiobookSettings.baseUrl,
+                    model: audiobookSettings.model,
+                    enablePromptCaching:
+                      audiobookSettings.enablePromptCaching,
+                  },
+                  tts: {
+                    playbackSpeed: 1.0,
+                    emotionShaping: audiobookSettings.emotionShaping,
+                    lookaheadSegments: audiobookSettings.lookaheadSegments,
+                  },
+                },
+                {
+                  id: novel?.id ?? '',
+                  name: novel?.name ?? 'Unknown',
+                  cover: novel?.cover ?? undefined,
+                },
+                {
+                  id: chapter.id,
+                  path: chapter.path,
+                  name: chapter.name,
+                },
                 event.data,
-                chapter.id,
-                String(novel?.id || ''),
               );
             }
             break;
           case 'audiobook-pause':
-            audiobookPlayerRef.current.pause();
+            audiobookPlayer.pause();
             break;
           case 'audiobook-resume':
-            audiobookPlayerRef.current.resume();
+            audiobookPlayer.resume();
             break;
           case 'audiobook-stop':
-            audiobookPlayerRef.current.stop();
+            audiobookPlayer.stop();
             isAudiobookActiveRef.current = false;
             dismissTTSNotification();
             break;

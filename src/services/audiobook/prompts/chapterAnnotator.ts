@@ -1,54 +1,133 @@
-import { CharacterGlossary, LLMMessage } from '../types';
+import { CharacterGlossary } from '../types';
 
-const SYSTEM_PROMPT = `You are an audiobook director. Your task is to segment a chapter into annotated parts for text-to-speech rendering with distinct character voices.
+export const ANNOTATION_TOOL_NAME = 'emit_annotation';
+export const ANNOTATION_TOOL_DESCRIPTION =
+  'Emit the segmented chapter annotation for TTS rendering.';
 
-Break the chapter text into segments where each segment is either:
-- Narration (speaker: "narrator")
-- Dialogue by a specific character (speaker: character's name)
-- Internal monologue (speaker: character's name, isDialogue: false)
+export const ANNOTATION_TOOL_INPUT_SCHEMA = {
+  type: 'object',
+  required: ['segments'],
+  properties: {
+    segments: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: [
+          'text',
+          'speaker',
+          'emotion',
+          'intensity',
+          'isDialogue',
+          'pauseBefore',
+        ],
+        properties: {
+          text: {
+            type: 'string',
+            description: 'Exact text of this segment, preserving wording.',
+          },
+          speaker: {
+            type: 'string',
+            description:
+              'Speaker name from the glossary, or "narrator" / "system" / "crowd".',
+          },
+          emotion: {
+            type: 'string',
+            enum: [
+              'neutral',
+              'happy',
+              'sad',
+              'angry',
+              'fearful',
+              'surprised',
+              'whisper',
+              'shouting',
+              'amused',
+              'tender',
+              'cold',
+              'distressed',
+            ],
+          },
+          intensity: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 3,
+            description:
+              '1 = subtle, 2 = clear, 3 = extreme. Defaults to 2 when uncertain.',
+          },
+          isDialogue: { type: 'boolean' },
+          pauseBefore: {
+            type: 'string',
+            enum: ['short', 'medium', 'long'],
+          },
+        },
+      },
+    },
+  },
+} as const;
 
-For each segment, determine:
-1. The exact text (preserve original wording)
-2. Who is speaking or narrating
-3. The emotional tone
-4. Whether it's spoken dialogue
-5. The pause needed before this segment
+export const ANNOTATION_SYSTEM_PROMPT = `You are an audiobook director. Your task is to segment a chapter for multi-voice TTS rendering.
 
-Respond with ONLY valid JSON matching this exact schema:
-{
-  "segments": [
-    {
-      "text": "string",
-      "speaker": "string",
-      "emotion": "neutral" | "happy" | "sad" | "angry" | "fearful" | "surprised" | "whisper",
-      "isDialogue": boolean,
-      "pauseBefore": "short" | "medium" | "long"
-    }
-  ]
-}
+Break the chapter into segments. Each segment is one of:
+- Narration: speaker = "narrator".
+- Dialogue: speaker = the speaking character (use the glossary name).
+- Internal monologue: speaker = the character thinking; isDialogue = false.
+- System/status text (LitRPG): speaker = "system".
+
+For each segment determine:
+1. Exact text (preserve original wording, including quote marks).
+2. Speaker (from the glossary, or one of: "narrator", "system", "crowd").
+3. Emotion: how the segment should SOUND.
+4. Intensity: 1 = subtle, 2 = clear, 3 = extreme.
+5. isDialogue: true if it's spoken aloud (in quote marks).
+6. pauseBefore: silence before this segment.
+   - "short" between consecutive narration sentences.
+   - "medium" at paragraph or speaker change.
+   - "long" at scene break.
+
+Examples:
+
+Input: \`"I'll kill you!" he hissed, knuckles white.\`
+Output:
+- {text: "\\"I'll kill you!\\"", speaker: "Kael", emotion: "angry", intensity: 3, isDialogue: true, pauseBefore: "medium"}
+- {text: "he hissed, knuckles white.", speaker: "narrator", emotion: "neutral", intensity: 2, isDialogue: false, pauseBefore: "short"}
+
+Input: \`Rimuru smiled. "It's nothing," he said softly.\`
+Output:
+- {text: "Rimuru smiled.", speaker: "narrator", emotion: "happy", intensity: 1, isDialogue: false, pauseBefore: "medium"}
+- {text: "\\"It's nothing,\\"", speaker: "Rimuru", emotion: "tender", intensity: 1, isDialogue: true, pauseBefore: "short"}
+- {text: "he said softly.", speaker: "narrator", emotion: "neutral", intensity: 1, isDialogue: false, pauseBefore: "short"}
 
 Guidelines:
-- Split at natural boundaries: paragraph breaks, speaker changes, major tone shifts
-- Keep segments between 1-4 sentences for natural TTS pacing
-- Use character names exactly as they appear in the glossary
-- For unknown speakers, use "narrator"
-- Pause guide: "short" (200ms) between consecutive narration, "medium" (400ms) at paragraph breaks or speaker changes, "long" (800ms) at scene breaks
-- Emotion should reflect how the text should SOUND, not just what it describes
-- Quotation marks indicate dialogue (isDialogue: true)
-- Thoughts/internal monologue without quotes: isDialogue: false
-- Combine very short narration segments (like "he said") with adjacent dialogue when natural`;
+- Keep segments 1-4 sentences for natural TTS pacing.
+- Use the speaker name EXACTLY as it appears in the glossary.
+- For unnamed speakers, use "crowd" if it's a generic group, otherwise "narrator".
+- Don't invent character names — if you don't know who's speaking, use "narrator".
+- Combine very short narration ("he said") with adjacent dialogue when natural.
+- Emotion describes how to SAY it, not what is described. "She watched the sunset" = neutral, not happy.
 
-export function buildAnnotationPrompt(
-  chapterText: string,
-  glossary: CharacterGlossary,
-  chapterId: number,
-): LLMMessage {
-  const characterList = glossary.characters
+Respond by calling the emit_annotation tool with structured arguments. Do NOT respond with prose.`;
+
+export function buildGlossarySummary(glossary: CharacterGlossary): string {
+  const characters = glossary.characters
     .map(c => `- ${c.name} (${c.gender}): ${c.description}`)
     .join('\n');
+  return [
+    `Narrator: ${glossary.narratorGender}, hints: ${glossary.narratorVoiceHints.join(', ') || '—'}`,
+    '',
+    `Characters:`,
+    characters || '(none yet)',
+  ].join('\n');
+}
 
-  return {
-    system: SYSTEM_PROMPT,
-    user: `Known characters:\n${characterList}\n\nAnnotate this chapter (ID: ${chapterId}):\n\n${chapterText}`,
-  };
+export function buildAnnotationUserMessage(
+  glossary: CharacterGlossary,
+  chapterText: string,
+): string {
+  return [
+    buildGlossarySummary(glossary),
+    '',
+    `Annotate this chapter:`,
+    '',
+    chapterText,
+  ].join('\n');
 }

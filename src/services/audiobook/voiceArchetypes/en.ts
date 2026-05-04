@@ -1,0 +1,158 @@
+/**
+ * English personality/voice keywords → archetype scores.
+ *
+ * Light novels (English originals + translations of JP/CN/KR) use
+ * a fairly stable set of personality descriptors. Foreign-language
+ * loanwords like "tsundere", "yandere", "shounen" are common enough
+ * to hard-code.
+ */
+
+import { ArchetypeScores } from '../types';
+
+export const EN_KEYWORD_SCORES: Record<string, ArchetypeScores> = {
+  // Warrior
+  warrior: { warrior: 3 },
+  fighter: { warrior: 3 },
+  swordsman: { warrior: 3 },
+  knight: { warrior: 2, noble: 1 },
+  mercenary: { warrior: 2, villain: 1 },
+  fierce: { warrior: 3, villain: 1 },
+  brave: { warrior: 2, noble: 1 },
+  bold: { warrior: 2, trickster: 0.5 },
+  hotblooded: { warrior: 3 },
+  aggressive: { warrior: 3, villain: 1 },
+  fearless: { warrior: 2, noble: 0.5 },
+  combative: { warrior: 3, villain: 0.5 },
+  battlehardened: { warrior: 3 },
+  reckless: { warrior: 2, trickster: 1 },
+  shounen: { warrior: 2, child: 1 },
+
+  // Mentor
+  mentor: { mentor: 3 },
+  teacher: { mentor: 3 },
+  master: { mentor: 2, noble: 1 },
+  sage: { mentor: 3, elder: 1 },
+  wise: { mentor: 3, elder: 1, noble: 1 },
+  knowledgeable: { mentor: 2 },
+  guide: { mentor: 2 },
+  scholar: { mentor: 2, elder: 1 },
+  thoughtful: { mentor: 2, gentle: 0.5 },
+  philosophical: { mentor: 3 },
+  patient: { mentor: 2, gentle: 1 },
+
+  // Villain
+  villain: { villain: 3 },
+  villainous: { villain: 3 },
+  evil: { villain: 3 },
+  dark: { villain: 2, mentor: 0.5 },
+  sinister: { villain: 3 },
+  cunning: { villain: 2, trickster: 1 },
+  cruel: { villain: 3 },
+  cold: { villain: 2, noble: 1, mentor: 0.5 },
+  ruthless: { villain: 3 },
+  manipulative: { villain: 3 },
+  treacherous: { villain: 3 },
+  scheming: { villain: 2, trickster: 1 },
+  malicious: { villain: 3 },
+  menacing: { villain: 3 },
+  sadistic: { villain: 3 },
+  yandere: { villain: 2, gentle: 0.5 },
+
+  // Gentle
+  gentle: { gentle: 3 },
+  kind: { gentle: 3 },
+  warm: { gentle: 2, mentor: 0.5 },
+  caring: { gentle: 3 },
+  soft: { gentle: 2 },
+  shy: { gentle: 2 },
+  timid: { gentle: 2 },
+  humble: { gentle: 2 },
+  modest: { gentle: 2, noble: 0.5 },
+  meek: { gentle: 3 },
+  compassionate: { gentle: 3 },
+  empathetic: { gentle: 3 },
+  reserved: { gentle: 1, noble: 1 },
+  introverted: { gentle: 2 },
+  dandere: { gentle: 2 },
+
+  // Trickster
+  trickster: { trickster: 3 },
+  mischievous: { trickster: 3 },
+  playful: { trickster: 2, child: 1 },
+  cheerful: { trickster: 2, child: 1 },
+  energetic: { trickster: 2, child: 1 },
+  witty: { trickster: 3 },
+  sarcastic: { trickster: 3 },
+  cheeky: { trickster: 3 },
+  jovial: { trickster: 2, gentle: 0.5 },
+  joker: { trickster: 3 },
+  prankster: { trickster: 3 },
+  whimsical: { trickster: 2 },
+  flirtatious: { trickster: 2 },
+  tsundere: { trickster: 2, gentle: 1 },
+  genki: { trickster: 2, child: 1 },
+
+  // Noble
+  noble: { noble: 3 },
+  regal: { noble: 3 },
+  dignified: { noble: 3 },
+  proud: { noble: 2, villain: 0.5 },
+  royal: { noble: 3 },
+  elegant: { noble: 3 },
+  authoritative: { noble: 2, mentor: 1 },
+  stern: { noble: 2, villain: 0.5 },
+  composed: { noble: 2 },
+  sophisticated: { noble: 3 },
+  aristocratic: { noble: 3 },
+  poised: { noble: 2 },
+  formal: { noble: 2 },
+  ojou: { noble: 3 },
+
+  // Child
+  child: { child: 3 },
+  young: { child: 2 },
+  innocent: { child: 2, gentle: 1 },
+  naive: { child: 2, gentle: 0.5 },
+  cute: { child: 2 },
+  small: { child: 1 },
+  childish: { child: 3 },
+  childlike: { child: 3 },
+  bubbly: { child: 2, trickster: 1 },
+  loli: { child: 3 },
+  shota: { child: 3 },
+
+  // Elder
+  elder: { elder: 3 },
+  old: { elder: 2 },
+  ancient: { elder: 3 },
+  mature: { elder: 1, mentor: 1 },
+  veteran: { elder: 2, warrior: 1 },
+  experienced: { elder: 2, mentor: 1 },
+  weathered: { elder: 3 },
+  grandfatherly: { elder: 3, mentor: 1 },
+  grandmotherly: { elder: 3, mentor: 1 },
+  retired: { elder: 2 },
+
+  // Voice hints (audio descriptors that bias the matcher)
+  deep: { villain: 1, warrior: 1, mentor: 0.5 },
+  high: { child: 1, trickster: 0.5 },
+  raspy: { villain: 1, elder: 1, warrior: 0.5 },
+  smooth: { noble: 1, mentor: 0.5 },
+  growly: { villain: 1, warrior: 1 },
+  musical: { gentle: 1, noble: 0.5 },
+  rapid: { trickster: 1, child: 0.5 },
+  clipped: { villain: 0.5, noble: 1 },
+  monotone: { villain: 1, mentor: 0.5 },
+  hesitant: { gentle: 1, child: 0.5 },
+  rough: { warrior: 1, villain: 0.5 },
+  silken: { villain: 1, noble: 1 },
+  gravelly: { villain: 1, warrior: 1, elder: 0.5 },
+  nasal: { trickster: 1 },
+  resonant: { mentor: 1, noble: 0.5 },
+  loud: { warrior: 1, villain: 0.5 },
+  quiet: { gentle: 1, noble: 0.5 },
+  slow: { mentor: 1, elder: 1 },
+  fast: { trickster: 1, child: 0.5 },
+  husky: { warrior: 1, villain: 1 },
+  cheerfulvoice: { trickster: 1, child: 0.5 },
+};

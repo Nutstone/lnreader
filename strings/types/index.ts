@@ -382,6 +382,8 @@ export interface StringMap {
   'novelScreen.audiobook.next5': 'string';
   'novelScreen.audiobook.next10': 'string';
   'novelScreen.audiobook.unread': 'string';
+  'novelScreen.audiobook.editCast': 'string';
+  'novelScreen.audiobook.clearCache': 'string';
   'novelScreen.edit.glossary': 'string';
   'novelScreen.glossaryEditor.addCharacter': 'string';
   'novelScreen.glossaryEditor.aliases': 'string';
@@ -502,4 +504,27 @@ export interface StringMap {
   'audiobookSettings.providerAnthropic': 'string';
   'audiobookSettings.providerGemini': 'string';
   'audiobookSettings.providerOllama': 'string';
+  'audiobookPlayer.title': 'string';
+  'audiobookPlayer.speed': 'string';
+  'audiobookPlayer.sleepTimer': 'string';
+  'audiobookPlayer.off': 'string';
+  'audiobookPlayer.rendering': 'string';
+  'audiobookPlayer.noAudio': 'string';
+  'audiobookPlayer.openExpanded': 'string';
+  'glossaryEditor.addCharacter': 'string';
+  'glossaryEditor.aliases': 'string';
+  'glossaryEditor.deleteConfirm': 'string';
+  'glossaryEditor.deleteGlossary': 'string';
+  'glossaryEditor.description': 'string';
+  'glossaryEditor.gender': 'string';
+  'glossaryEditor.name': 'string';
+  'glossaryEditor.narratorGender': 'string';
+  'glossaryEditor.noGlossary': 'string';
+  'glossaryEditor.personality': 'string';
+  'glossaryEditor.voiceHints': 'string';
+  'glossaryEditor.pronunciation': 'string';
+  'glossaryEditor.save': 'string';
+  'glossaryEditor.title': 'string';
+  'glossaryEditor.recast': 'string';
+  'glossaryEditor.done': 'string';
 }
