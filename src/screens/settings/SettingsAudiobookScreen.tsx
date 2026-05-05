@@ -181,17 +181,20 @@ const AudiobookSettingsScreen = ({
           />
         </Section>
 
-        <Section title="Cache" theme={theme}>
+        <Section title="Rendered audio" theme={theme}>
           <Text style={[styles.help, { color: theme.onSurfaceVariant }]}>
-            Wipe rendered audio, annotations, and voice maps for every novel.
+            Drop the rendered WAVs for every novel to free up space.
+            Annotations and voice maps stay (they cost real LLM money).
+            To wipe everything for one novel, use the headphones menu on
+            its detail screen.
           </Text>
           <View style={styles.cacheBtns}>
             <Button
-              title="Clear cache"
+              title="Clear rendered audio"
               mode="outlined"
               onPress={() => {
                 audioCache.clearAll();
-                showToast('Audiobook cache cleared');
+                showToast('Rendered audio cleared');
               }}
             />
           </View>

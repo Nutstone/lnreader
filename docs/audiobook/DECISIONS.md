@@ -40,13 +40,28 @@ reader-side feature.
 
 ## Persistence
 
-- Settings: MMKV (`AUDIOBOOK_SETTINGS`).
-- Engine artefacts: per-novel JSON files under `AUDIOBOOK_STORAGE/<novelId>/`
-  (glossary, voice map, annotations). Hierarchical, atomic, debuggable.
-- Audio: WAV per segment with a JSON manifest per chapter. `expo-av`
-  plays WAV without transcode. OPUS is a future size optimisation.
+Two roots, on purpose:
 
-No SQLite tables, no audio playback module, no schema migrations.
+- **`AUDIOBOOK_STORAGE`** (= `ROOT_STORAGE/Audiobook`, backed up by the
+  existing local/Drive/self-host backup pipeline) — settings live in
+  MMKV; per-novel artefacts (`glossary.json`, `voice-map.json`,
+  `annotations/<chapterKey>.json`) live as hierarchical JSON files.
+  Tiny, atomic, debuggable, and represent real money paid to Claude.
+- **`AUDIOBOOK_AUDIO_CACHE`** (= `ExternalCachesDirectoryPath/Audiobook`,
+  skipped by backups) — rendered WAVs + their manifest. Free to
+  rebuild from annotations + Kokoro; can be cleared by the OS or the
+  user without losing any paid work.
+
+`expo-av` plays WAV without transcode. OPUS is a future size
+optimisation. No SQLite tables, no audio playback module, no schema
+migrations.
+
+### Clear-cache semantics
+
+- Settings → "Clear rendered audio": wipes `AUDIOBOOK_AUDIO_CACHE`
+  for every novel. Frees disk; keeps annotations and glossaries.
+- Novel screen → headphones menu → "Clear audiobook cache": wipes
+  both roots for that novel. Forces a full rebuild on next play.
 
 ## Phonetics
 

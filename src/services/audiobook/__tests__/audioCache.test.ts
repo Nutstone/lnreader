@@ -106,7 +106,7 @@ describe('AudioCache', () => {
 
   it('readManifest deletes corrupt manifest', () => {
     const c = new AudioCache();
-    const dir = '/data/test/Audiobook/n1/audio/k1';
+    const dir = '/data/cache/Audiobook/n1/k1';
     mockDirs.add(dir);
     mockFs.set(`${dir}/manifest.json`, 'not valid json');
     expect(c.readManifest(keys)).toBeNull();
@@ -136,7 +136,7 @@ describe('AudioCache', () => {
 
   it('computeInvalidation reuses matching segments', () => {
     const c = new AudioCache();
-    const dir = '/data/test/Audiobook/n1/audio/k1';
+    const dir = '/data/cache/Audiobook/n1/k1';
     c.upsertSegment(keys, segRef(0, 'Hello'));
     mockFs.set(`${dir}/seg_0000.wav`, 'fake-wav-data');
     const annotation: ChapterAnnotation = {
@@ -161,7 +161,7 @@ describe('AudioCache', () => {
 
   it('computeInvalidation invalidates on text change', () => {
     const c = new AudioCache();
-    const dir = '/data/test/Audiobook/n1/audio/k1';
+    const dir = '/data/cache/Audiobook/n1/k1';
     c.upsertSegment(keys, segRef(0, 'Old text'));
     mockFs.set(`${dir}/seg_0000.wav`, 'data');
     const annotation: ChapterAnnotation = {
@@ -206,13 +206,23 @@ describe('AudioCache', () => {
     expect(r.reusableIndexes.has(0)).toBe(false);
   });
 
-  it('clearAll wipes the audiobook root', () => {
+  it('clearAll wipes rendered audio for every novel', () => {
     const c = new AudioCache();
     c.upsertSegment(keys, segRef(0));
     c.upsertSegment({ novelId: 'n2', chapterKey: 'k2', chapterId: 2 }, segRef(0));
     c.clearAll();
     expect(c.readManifest(keys)).toBeNull();
     expect(c.readManifest({ novelId: 'n2', chapterKey: 'k2', chapterId: 2 })).toBeNull();
+  });
+
+  it('clearForNovel wipes only one novel\'s rendered audio', () => {
+    const c = new AudioCache();
+    const n2keys = { novelId: 'n2', chapterKey: 'k2', chapterId: 2 };
+    c.upsertSegment(keys, segRef(0));
+    c.upsertSegment(n2keys, segRef(0));
+    c.clearForNovel('n1');
+    expect(c.readManifest(keys)).toBeNull();
+    expect(c.readManifest(n2keys)).not.toBeNull();
   });
 
   it('upsert keeps total duration in sync', () => {
