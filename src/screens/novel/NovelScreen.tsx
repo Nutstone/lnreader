@@ -34,6 +34,7 @@ import { useNovelContext } from './NovelContext';
 import { LegendListRef } from '@legendapp/list';
 import ServiceManager from '@services/ServiceManager';
 import { AudiobookPipeline } from '@services/audiobook';
+import { clearAudiobookAvailableForNovel } from '@database/queries/ChapterQueries';
 import { showToast } from '@utils/showToast';
 
 const Novel = ({ route, navigation }: NovelScreenProps) => {
@@ -154,7 +155,8 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
   const clearAudiobookCache = useCallback(async () => {
     if (!novel) return;
     const pipeline = new AudiobookPipeline({
-      novelId: String(novel.id),
+      novelId: novel.id,
+      pluginId: novel.pluginId,
       llm: {},
       tts: {
         playbackSpeed: 1,
@@ -164,6 +166,7 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
       },
     });
     await pipeline.clearCache();
+    await clearAudiobookAvailableForNovel(novel.id);
     showToast('Audiobook cache cleared for this novel.');
   }, [novel]);
 

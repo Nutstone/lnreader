@@ -600,7 +600,8 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
               isAudiobookActiveRef.current = true;
               audiobookPlayer.playChapter(
                 {
-                  novelId: String(novel?.id ?? ''),
+                  novelId: novel?.id ?? '',
+                  pluginId: novel?.pluginId ?? '',
                   llm: {
                     apiKey: audiobookSettings.apiKey,
                     model: audiobookSettings.model,
@@ -614,6 +615,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
                 },
                 {
                   id: novel?.id ?? '',
+                  pluginId: novel?.pluginId ?? '',
                   name: novel?.name ?? 'Unknown',
                   cover: novel?.cover ?? undefined,
                 },

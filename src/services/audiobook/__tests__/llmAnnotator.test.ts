@@ -143,7 +143,6 @@ describe('LLMAnnotator', () => {
     const annotator = new LLMAnnotator({ apiKey: 'sk' });
     const annotation = await annotator.annotateChapter(
       0,
-      '/novel/foo/chapter-1',
       'Some chapter text.',
       {
         novelId: 't',
@@ -155,7 +154,6 @@ describe('LLMAnnotator', () => {
       },
     );
     expect(annotation.chapterId).toBe(0);
-    expect(annotation.chapterKey).toMatch(/^[0-9a-f]{16}$/);
     expect(annotation.segments).toHaveLength(1);
     expect(annotation.segments[0]).toEqual({
       text: 'Hello!',

@@ -34,7 +34,8 @@ export interface TTSConfig {
 export interface AudiobookConfig {
   llm: LLMConfig;
   tts: TTSConfig;
-  novelId: string;
+  novelId: number | string;
+  pluginId: string;
 }
 
 // ── Glossary ────────────────────────────────────────────────────
@@ -93,8 +94,6 @@ export interface AnnotatedSegment {
 
 export interface ChapterAnnotation {
   chapterId: number;
-  /** Stable hash of plugin-provided chapter path. */
-  chapterKey: string;
   segments: AnnotatedSegment[];
   createdAt: string;
 }
@@ -170,7 +169,6 @@ export interface AudioSegmentRef {
 }
 
 export interface ChapterAudioManifest {
-  chapterKey: string;
   chapterId: number;
   totalDurationMs: number;
   totalSegments: number;
@@ -231,7 +229,6 @@ export interface PlayerState {
   novelName?: string;
   novelCover?: string;
   chapterId?: number;
-  chapterKey?: string;
   chapterName?: string;
   totalSegments: number;
   segmentIndex: number;

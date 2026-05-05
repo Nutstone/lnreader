@@ -16,7 +16,6 @@ interface ChapterItemProps {
   isSelected?: boolean;
   isLocal: boolean;
   isUpdateCard?: boolean;
-  hasAudiobook?: boolean;
   theme: ThemeColors;
   showChapterTitles: boolean;
   novelName: string;
@@ -34,7 +33,6 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
   isSelected,
   isLocal,
   isUpdateCard,
-  hasAudiobook,
   theme,
   showChapterTitles,
   novelName,
@@ -44,6 +42,7 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
   onSelectPress,
   onSelectLongPress,
 }) => {
+  const hasAudiobook = !!chapter.isAvailableAsAudiobook;
   const { id, name, unread, releaseTime, bookmark, chapterNumber, progress } =
     chapter;
 

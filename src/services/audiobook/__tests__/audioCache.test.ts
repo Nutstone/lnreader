@@ -66,7 +66,7 @@ beforeEach(() => {
   mockDirs.clear();
 });
 
-const keys = { novelId: 'n1', chapterKey: 'k1', chapterId: 1 };
+const keys = { novelId: 'n1', chapterId: 1 };
 
 const segRef = (i: number, text = 'Hello'): AudioSegmentRef => ({
   index: i,
@@ -106,7 +106,7 @@ describe('AudioCache', () => {
 
   it('readManifest deletes corrupt manifest', () => {
     const c = new AudioCache();
-    const dir = '/data/cache/Audiobook/n1/k1';
+    const dir = '/data/cache/Audiobook/n1/1';
     mockDirs.add(dir);
     mockFs.set(`${dir}/manifest.json`, 'not valid json');
     expect(c.readManifest(keys)).toBeNull();
@@ -117,7 +117,6 @@ describe('AudioCache', () => {
     const c = new AudioCache();
     const annotation: ChapterAnnotation = {
       chapterId: 1,
-      chapterKey: 'k1',
       segments: [
         {
           text: 'A',
@@ -136,12 +135,11 @@ describe('AudioCache', () => {
 
   it('computeInvalidation reuses matching segments', () => {
     const c = new AudioCache();
-    const dir = '/data/cache/Audiobook/n1/k1';
+    const dir = '/data/cache/Audiobook/n1/1';
     c.upsertSegment(keys, segRef(0, 'Hello'));
     mockFs.set(`${dir}/seg_0000.wav`, 'fake-wav-data');
     const annotation: ChapterAnnotation = {
       chapterId: 1,
-      chapterKey: 'k1',
       segments: [
         {
           text: 'Hello',
@@ -161,12 +159,11 @@ describe('AudioCache', () => {
 
   it('computeInvalidation invalidates on text change', () => {
     const c = new AudioCache();
-    const dir = '/data/cache/Audiobook/n1/k1';
+    const dir = '/data/cache/Audiobook/n1/1';
     c.upsertSegment(keys, segRef(0, 'Old text'));
     mockFs.set(`${dir}/seg_0000.wav`, 'data');
     const annotation: ChapterAnnotation = {
       chapterId: 1,
-      chapterKey: 'k1',
       segments: [
         {
           text: 'New text',
@@ -189,7 +186,6 @@ describe('AudioCache', () => {
     // No fake WAV — file missing.
     const annotation: ChapterAnnotation = {
       chapterId: 1,
-      chapterKey: 'k1',
       segments: [
         {
           text: 'Hello',
@@ -209,15 +205,15 @@ describe('AudioCache', () => {
   it('clearAll wipes rendered audio for every novel', () => {
     const c = new AudioCache();
     c.upsertSegment(keys, segRef(0));
-    c.upsertSegment({ novelId: 'n2', chapterKey: 'k2', chapterId: 2 }, segRef(0));
+    c.upsertSegment({ novelId: 'n2', chapterId: 2 }, segRef(0));
     c.clearAll();
     expect(c.readManifest(keys)).toBeNull();
-    expect(c.readManifest({ novelId: 'n2', chapterKey: 'k2', chapterId: 2 })).toBeNull();
+    expect(c.readManifest({ novelId: 'n2', chapterId: 2 })).toBeNull();
   });
 
   it('clearForNovel wipes only one novel\'s rendered audio', () => {
     const c = new AudioCache();
-    const n2keys = { novelId: 'n2', chapterKey: 'k2', chapterId: 2 };
+    const n2keys = { novelId: 'n2', chapterId: 2 };
     c.upsertSegment(keys, segRef(0));
     c.upsertSegment(n2keys, segRef(0));
     c.clearForNovel('n1');

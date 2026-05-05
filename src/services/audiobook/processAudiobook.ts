@@ -7,6 +7,7 @@
 
 import { getPlugin } from '@plugins/pluginManager';
 import { BackgroundTaskMetadata } from '@services/ServiceManager';
+import { setChapterAudiobookAvailable } from '@database/queries/ChapterQueries';
 import { AudiobookPipeline } from './pipeline';
 import { AudiobookConfig } from './types';
 import { getMMKVObject } from '@utils/mmkv/mmkv';
@@ -42,7 +43,8 @@ export const processAudiobook = async (
     }
 
     const config: AudiobookConfig = {
-      novelId: String(data.novelId),
+      novelId: data.novelId,
+      pluginId: data.pluginId,
       llm: {
         apiKey: settings.apiKey,
         model: settings.model,
@@ -77,13 +79,19 @@ export const processAudiobook = async (
       });
     }
 
-    await pipeline.processChapters(chapters, progress => {
-      setMeta(meta => ({
-        ...meta,
-        progressText: progress.message,
-        progress: 0.1 + progress.progress * 0.9,
-      }));
-    });
+    await pipeline.processChapters(
+      chapters,
+      progress => {
+        setMeta(meta => ({
+          ...meta,
+          progressText: progress.message,
+          progress: 0.1 + progress.progress * 0.9,
+        }));
+      },
+      async chapterId => {
+        await setChapterAudiobookAvailable(chapterId, true);
+      },
+    );
 
     setMeta(meta => ({
       ...meta,

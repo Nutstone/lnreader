@@ -13,6 +13,7 @@ import {
   updateTTSProgress,
   dismissTTSNotification,
 } from '@utils/ttsNotification';
+import { setChapterAudiobookAvailable } from '@database/queries/ChapterQueries';
 import {
   AudioSegment,
   AudiobookConfig,
@@ -28,6 +29,7 @@ import { sleep } from '@utils/sleep';
 
 export interface NovelMeta {
   id: number | string;
+  pluginId: string;
   name: string;
   cover?: string;
 }
@@ -133,10 +135,17 @@ class AudiobookPlayerService {
         rawText: chapterText,
       });
 
+      // Mark the chapter as audiobook-ready so the chapter list shows
+      // the indicator on next render.
+      try {
+        await setChapterAudiobookAvailable(chapter.id, true);
+      } catch {
+        /* non-fatal */
+      }
+
       this.setState({
         status: 'rendering',
         totalSegments: annotation.segments.length,
-        chapterKey: annotation.chapterKey,
       });
 
       showTTSNotification({

@@ -19,6 +19,9 @@ export const chapter = sqliteTable(
     unread: integer('unread', { mode: 'boolean' }).default(true),
     readTime: text('readTime'),
     isDownloaded: integer('isDownloaded', { mode: 'boolean' }).default(false),
+    isAvailableAsAudiobook: integer('isAvailableAsAudiobook', {
+      mode: 'boolean',
+    }).default(false),
     updatedTime: text('updatedTime'),
     chapterNumber: real('chapterNumber'),
     page: text('page').default('1'),

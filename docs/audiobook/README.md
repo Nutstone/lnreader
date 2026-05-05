@@ -15,21 +15,31 @@ renders each segment to a WAV; `expo-av` plays them in order.
   page is loaded from `android/app/src/main/assets/audiobook/`. Voice
   blending is implemented by patching `_validate_voice` and
   `generate_from_ids` in the host page (see `kokoro-tts.html`).
-- **Storage** — split between persistent and cache:
+- **Storage** — co-located with downloaded chapters under
+  `NOVEL_STORAGE`, plus a separate cache root for rendered audio:
   ```
-  AUDIOBOOK_STORAGE (ROOT_STORAGE/Audiobook — backed up):
-    <novelId>/
-      glossary.json
-      voice-map.json
-      annotations/<chapterKey>.json
+  NOVEL_STORAGE/<pluginId>/<novelId>/                 (backed up)
+    audiobook.glossary.json
+    audiobook.voice-map.json
+    <chapterId>/
+      index.html                ← downloaded chapter HTML
+      audiobook.json            ← per-chapter annotation
 
-  AUDIOBOOK_AUDIO_CACHE (ExternalCachesDirectoryPath/Audiobook — not backed up):
-    <novelId>/<chapterKey>/{manifest.json, seg_NNNN.wav}
+  AUDIOBOOK_AUDIO_CACHE/<novelId>/<chapterId>/        (not backed up)
+    manifest.json
+    seg_NNNN.wav
   ```
-  Annotations + glossary represent paid LLM work, are tiny, and live
-  with the rest of the app's persistent data. Rendered WAVs are large
-  and free to rebuild from the annotations + Kokoro, so they live in
-  the OS cache directory which the existing backup zips skip.
+  Annotations + glossary represent paid LLM work, are tiny, and ride
+  the existing `ROOT_STORAGE` backup zip for free. Rendered WAVs are
+  large and free to rebuild from the annotations + Kokoro, so they
+  live in the OS cache directory which the backup zips skip.
+
+- **Status flag** — each chapter row gains an
+  `isAvailableAsAudiobook` boolean column alongside `isDownloaded`.
+  The chapter list reads it directly to render the headphones
+  indicator. Set after each successful annotation
+  (`setChapterAudiobookAvailable`); cleared by the per-novel reset
+  (`clearAudiobookAvailableForNovel`).
 - **Player** — `AudiobookPlayer` singleton owns the `expo-av` sound and
   emits `PlayerState` to subscribers (the reader integration is the
   only consumer).

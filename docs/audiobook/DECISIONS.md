@@ -40,28 +40,43 @@ reader-side feature.
 
 ## Persistence
 
-Two roots, on purpose:
+Audiobook artefacts ride the existing per-chapter / per-novel storage
+patterns instead of inventing new roots.
 
-- **`AUDIOBOOK_STORAGE`** (= `ROOT_STORAGE/Audiobook`, backed up by the
-  existing local/Drive/self-host backup pipeline) — settings live in
-  MMKV; per-novel artefacts (`glossary.json`, `voice-map.json`,
-  `annotations/<chapterKey>.json`) live as hierarchical JSON files.
-  Tiny, atomic, debuggable, and represent real money paid to Claude.
-- **`AUDIOBOOK_AUDIO_CACHE`** (= `ExternalCachesDirectoryPath/Audiobook`,
-  skipped by backups) — rendered WAVs + their manifest. Free to
-  rebuild from annotations + Kokoro; can be cleared by the OS or the
-  user without losing any paid work.
+- **Per-chapter annotation** — `NOVEL_STORAGE/<pluginId>/<novelId>/<chapterId>/audiobook.json`,
+  next to the chapter's `index.html` if it's downloaded. Keyed by
+  chapter id, same as downloads.
+- **Per-novel cast** — `NOVEL_STORAGE/<pluginId>/<novelId>/audiobook.glossary.json`
+  and `audiobook.voice-map.json`. One pair per novel; tiny.
+- **Rendered audio** — `AUDIOBOOK_AUDIO_CACHE/<novelId>/<chapterId>/`
+  in `ExternalCachesDirectoryPath`. Large, free to rebuild, evictable
+  by the OS, skipped by backups.
+- **Settings** — MMKV (`AUDIOBOOK_SETTINGS`).
+- **Per-chapter status** — `chapter.isAvailableAsAudiobook` column,
+  same shape as `chapter.isDownloaded`. Drives the chapter-list
+  indicator. Set after each successful annotation; bulk-cleared on
+  per-novel reset.
 
 `expo-av` plays WAV without transcode. OPUS is a future size
-optimisation. No SQLite tables, no audio playback module, no schema
-migrations.
+optimisation.
+
+### Backup behaviour
+
+The existing local / Drive / self-host backup pipeline zips all of
+`ROOT_STORAGE` into `download.zip`, so co-locating annotations under
+`NOVEL_STORAGE` makes them backed up for free. Audio lives outside
+`ROOT_STORAGE`, so it's also excluded for free. No backup-pipeline
+changes needed.
 
 ### Clear-cache semantics
 
 - Settings → "Clear rendered audio": wipes `AUDIOBOOK_AUDIO_CACHE`
   for every novel. Frees disk; keeps annotations and glossaries.
-- Novel screen → headphones menu → "Clear audiobook cache": wipes
-  both roots for that novel. Forces a full rebuild on next play.
+- Novel screen → headphones menu → "Clear audiobook cache": removes
+  the audiobook files for that novel (glossary, voice-map, every
+  chapter's `audiobook.json`, all rendered audio) and clears the DB
+  flag. Leaves `index.html` downloads alone. Forces a full rebuild on
+  next play.
 
 ## Phonetics
 
