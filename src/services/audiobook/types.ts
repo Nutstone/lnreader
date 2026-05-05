@@ -193,6 +193,22 @@ export interface AudioSegment {
   intensity: EmotionIntensity;
 }
 
+// ── Pipeline progress ───────────────────────────────────────────
+
+export type PipelineStage =
+  | 'glossary'
+  | 'annotation'
+  | 'done';
+
+export interface PipelineProgress {
+  stage: PipelineStage;
+  message: string;
+  /** 0..1 */
+  progress: number;
+  chapterIndex?: number;
+  chapterTotal?: number;
+}
+
 // ── Player ──────────────────────────────────────────────────────
 
 export type PlayerStatus =

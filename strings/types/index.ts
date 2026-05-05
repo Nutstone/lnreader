@@ -376,6 +376,11 @@ export interface StringMap {
   'novelScreen.status.unknown': 'string';
   'novelScreen.tracked': 'string';
   'novelScreen.tracking': 'string';
+  'novelScreen.audiobook.next': 'string';
+  'novelScreen.audiobook.next5': 'string';
+  'novelScreen.audiobook.next10': 'string';
+  'novelScreen.audiobook.unread': 'string';
+  'novelScreen.audiobook.clearCache': 'string';
   'novelScreen.unknownStatus': 'string';
   'novelScreen.updatedToast': 'string';
   'readerScreen.bottomSheet.allowTextSelection': 'string';
@@ -471,5 +476,6 @@ export interface StringMap {
   'notifications.LOCAL_RESTORE': 'string';
   'notifications.MIGRATE_NOVEL': 'string';
   'notifications.DOWNLOAD_CHAPTER': 'string';
+  'notifications.AUDIOBOOK_PIPELINE': 'string';
   'audiobookSettings.title': 'string';
 }

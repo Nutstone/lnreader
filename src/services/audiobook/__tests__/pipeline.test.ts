@@ -86,7 +86,8 @@ function mockAnnotator() {
     ],
     createdAt: new Date().toISOString(),
   }));
-  return { buildGlossary, annotateChapter } as unknown as LLMAnnotator;
+  const extendGlossary = jest.fn(async () => []);
+  return { buildGlossary, annotateChapter, extendGlossary } as unknown as LLMAnnotator;
 }
 
 const baseConfig = {
@@ -158,6 +159,67 @@ describe('AudiobookPipeline', () => {
       rawText: 'a',
     });
     expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
+  });
+
+  it('processChapters annotates a batch and reuses glossary', async () => {
+    const annotator = mockAnnotator();
+    const pipeline = new AudiobookPipeline(
+      { ...baseConfig, novelId: 'novel-batch' },
+      { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
+    );
+    await pipeline.processChapters([
+      { id: 1, path: '/n/1', rawText: 'first' },
+      { id: 2, path: '/n/2', rawText: 'second' },
+    ]);
+    expect((annotator.buildGlossary as jest.Mock).mock.calls).toHaveLength(1);
+    expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
+
+    // Re-running is idempotent — annotations are cached.
+    await pipeline.processChapters([
+      { id: 1, path: '/n/1', rawText: 'first' },
+      { id: 2, path: '/n/2', rawText: 'second' },
+    ]);
+    expect((annotator.buildGlossary as jest.Mock).mock.calls).toHaveLength(1);
+    expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
+  });
+
+  it('discovers new speakers mid-novel and extends glossary', async () => {
+    const annotator = mockAnnotator();
+    // Single chapter with 4 unknown speakers — triggers discovery.
+    (annotator.annotateChapter as jest.Mock).mockImplementationOnce(
+      async (chapterId: number, path: string) => ({
+        chapterId,
+        chapterKey: chapterKeyFor(path),
+        segments: [
+          { text: '"Hi"', speaker: 'NewA', emotion: 'neutral', intensity: 2, isDialogue: true, pauseBefore: 'short' },
+          { text: '"Yo"', speaker: 'NewB', emotion: 'neutral', intensity: 2, isDialogue: true, pauseBefore: 'short' },
+          { text: '"Hey"', speaker: 'NewC', emotion: 'neutral', intensity: 2, isDialogue: true, pauseBefore: 'short' },
+          { text: '"Hello"', speaker: 'Rimuru', emotion: 'neutral', intensity: 2, isDialogue: true, pauseBefore: 'short' },
+        ],
+        createdAt: '',
+      }),
+    );
+    (annotator.extendGlossary as jest.Mock).mockResolvedValueOnce([
+      { name: 'NewA', aliases: [], gender: 'male', personality: ['warrior'], voiceHints: [], description: '' },
+      { name: 'NewB', aliases: [], gender: 'female', personality: ['gentle'], voiceHints: [], description: '' },
+      { name: 'NewC', aliases: [], gender: 'neutral', personality: ['child'], voiceHints: [], description: '' },
+    ]);
+
+    const pipeline = new AudiobookPipeline(
+      { ...baseConfig, novelId: 'novel-discovery' },
+      { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
+    );
+    await pipeline.annotateOne({ id: 1, path: '/n/1', rawText: 'x' });
+
+    expect((annotator.extendGlossary as jest.Mock).mock.calls).toHaveLength(1);
+    const updated = await pipeline.getGlossary();
+    expect(updated?.characters.map(c => c.name)).toEqual(
+      expect.arrayContaining(['Rimuru', 'NewA', 'NewB', 'NewC']),
+    );
+    const vm = await pipeline.getVoiceMap();
+    expect(Object.keys(vm?.mappings ?? {})).toEqual(
+      expect.arrayContaining(['NewA', 'NewB', 'NewC']),
+    );
   });
 
   it('clearCache wipes all per-novel artefacts', async () => {

@@ -456,6 +456,13 @@
     },
     "tracked": "Tracked",
     "tracking": "Tracking",
+    "audiobook": {
+      "next": "Process next chapter",
+      "next5": "Process next 5 chapters",
+      "next10": "Process next 10 chapters",
+      "unread": "Process unread chapters",
+      "clearCache": "Clear audiobook cache for this novel"
+    },
     "unknownStatus": "Unknown status",
     "updatedToast": "Updated %{name}"
   },
@@ -570,7 +577,8 @@
     "LOCAL_BACKUP": "Local Backup",
     "LOCAL_RESTORE": "Local Restore",
     "MIGRATE_NOVEL": "Migrating Novel",
-    "DOWNLOAD_CHAPTER": "Downloading Chapter"
+    "DOWNLOAD_CHAPTER": "Downloading Chapter",
+    "AUDIOBOOK_PIPELINE": "Processing Audiobook"
   },
   "audiobookSettings": {
     "title": "Audiobook"

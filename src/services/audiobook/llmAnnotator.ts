@@ -27,7 +27,9 @@ import {
   GLOSSARY_TOOL_DESCRIPTION,
   GLOSSARY_TOOL_INPUT_SCHEMA,
   GLOSSARY_TOOL_NAME,
+  GLOSSARY_UPDATE_SYSTEM_PROMPT,
   buildGlossaryPromptUserMessage,
+  buildGlossaryUpdateUserMessage,
 } from './prompts/glossaryBuilder';
 import { chapterKeyFor } from './chapterPath';
 
@@ -76,6 +78,33 @@ export class LLMAnnotator {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  async extendGlossary(
+    existing: CharacterGlossary,
+    newSpeakers: string[],
+    recentExcerpts: string[],
+  ): Promise<Character[]> {
+    this.requireKey();
+    const data = await this.callTool<{
+      narratorGender?: 'male' | 'female' | 'neutral';
+      narratorVoiceHints?: string[];
+      characters: Character[];
+    }>({
+      systemPrompt: GLOSSARY_UPDATE_SYSTEM_PROMPT,
+      userMessage: buildGlossaryUpdateUserMessage({
+        existing,
+        newSpeakers,
+        recentExcerpts,
+      }),
+      toolName: GLOSSARY_TOOL_NAME,
+      toolDescription: GLOSSARY_TOOL_DESCRIPTION,
+      toolInputSchema: GLOSSARY_TOOL_INPUT_SCHEMA,
+    });
+    return (data.characters ?? []).map(c => ({
+      ...c,
+      voiceHints: c.voiceHints ?? [],
+    }));
   }
 
   async annotateChapter(
