@@ -15,7 +15,6 @@ import {
 import { createBackup, restoreBackup } from './backup/local';
 import { migrateNovel, MigrateNovelData } from './migrate/migrateNovel';
 import { downloadChapter } from './download/downloadChapter';
-import { processAudiobook } from './audiobook/processAudiobook';
 import { askForPostNotificationsPermission } from '@utils/askForPostNoftificationsPermission';
 
 type taskNames =
@@ -28,8 +27,7 @@ type taskNames =
   | 'LOCAL_BACKUP'
   | 'LOCAL_RESTORE'
   | 'MIGRATE_NOVEL'
-  | 'DOWNLOAD_CHAPTER'
-  | 'AUDIOBOOK_PIPELINE';
+  | 'DOWNLOAD_CHAPTER';
 
 export type BackgroundTask =
   | {
@@ -53,21 +51,10 @@ export type BackgroundTask =
   | { name: 'LOCAL_BACKUP' }
   | { name: 'LOCAL_RESTORE' }
   | { name: 'MIGRATE_NOVEL'; data: MigrateNovelData }
-  | DownloadChapterTask
-  | AudiobookPipelineTask;
+  | DownloadChapterTask;
 export type DownloadChapterTask = {
   name: 'DOWNLOAD_CHAPTER';
   data: { chapterId: number; novelName: string; chapterName: string };
-};
-export type AudiobookPipelineTask = {
-  name: 'AUDIOBOOK_PIPELINE';
-  data: {
-    novelId: number;
-    novelName: string;
-    pluginId: string;
-    chapterIds: number[];
-    chapterPaths: string[];
-  };
 };
 
 export type BackgroundTaskMetadata = {
@@ -271,8 +258,6 @@ export default class ServiceManager {
         return migrateNovel(task.task.data, this.setMeta.bind(this));
       case 'DOWNLOAD_CHAPTER':
         return downloadChapter(task.task.data, this.setMeta.bind(this));
-      case 'AUDIOBOOK_PIPELINE':
-        return processAudiobook(task.task.data, this.setMeta.bind(this));
     }
   }
 
@@ -290,7 +275,6 @@ export default class ServiceManager {
       'LOCAL_RESTORE': 0,
       'MIGRATE_NOVEL': 0,
       'DOWNLOAD_CHAPTER': 0,
-      'AUDIOBOOK_PIPELINE': 0,
     };
     const startingTasks = manager.getTaskList();
     const tasksSet = new Set(startingTasks.map(t => t.id));
@@ -383,10 +367,6 @@ export default class ServiceManager {
         return getString('notifications.LOCAL_BACKUP');
       case 'LOCAL_RESTORE':
         return getString('notifications.LOCAL_RESTORE');
-      case 'AUDIOBOOK_PIPELINE':
-        return `${getString('notifications.AUDIOBOOK_PIPELINE')}: ${
-          task.data?.novelName || ''
-        }`;
       default:
         return 'Unknown Task';
     }

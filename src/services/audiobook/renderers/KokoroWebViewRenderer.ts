@@ -12,19 +12,14 @@
  */
 
 import * as FileSystem from 'expo-file-system/legacy';
-import NativeFile from '@specs/NativeFile';
-import { AudioSegment, BlendedVoice, ChapterAnnotation, VoiceMap } from '../types';
 import {
   ITTSRenderer,
   KokoroDtype,
   RendererCapabilities,
-  StreamOptions,
   SynthesisRequest,
   SynthesisResult,
-  effectiveSpeed,
 } from './types';
 import { blendString } from '../voiceCaster';
-import { getEmotionModulation, pauseTypeToMs } from '../emotionModulation';
 
 // ── Host bridge ─────────────────────────────────────────────────
 
@@ -44,7 +39,9 @@ export type KokoroHostMessage =
   | { type: 'error'; id?: string; message: string };
 
 let activeHost: KokoroHostBridge | null = null;
-const downloadProgressListeners = new Set<(loaded: number, total: number, status: string) => void>();
+const downloadProgressListeners = new Set<
+  (loaded: number, total: number, status: string) => void
+>();
 
 export function setKokoroHost(host: KokoroHostBridge | null) {
   activeHost = host;
@@ -58,7 +55,9 @@ export function onKokoroDownloadProgress(
   handler: (loaded: number, total: number, status: string) => void,
 ): () => void {
   downloadProgressListeners.add(handler);
-  return () => downloadProgressListeners.delete(handler);
+  return () => {
+    downloadProgressListeners.delete(handler);
+  };
 }
 
 // ── Renderer ────────────────────────────────────────────────────
@@ -140,74 +139,6 @@ export class KokoroWebViewRenderer implements ITTSRenderer {
     });
   }
 
-  async *streamChapterAudio(
-    annotation: ChapterAnnotation,
-    voiceMap: VoiceMap,
-    options: StreamOptions,
-  ): AsyncGenerator<AudioSegment> {
-    await this.initialize();
-
-    if (!NativeFile.exists(options.outputDir)) {
-      NativeFile.mkdir(options.outputDir);
-    }
-
-    const queue: Promise<AudioSegment>[] = [];
-    const segments = annotation.segments;
-
-    const renderOne = async (segIndex: number): Promise<AudioSegment> => {
-      const seg = segments[segIndex];
-      const voice = pickVoice(voiceMap, seg.speaker);
-      const id = `seg_${annotation.chapterKey}_${segIndex}`;
-      const outputPath = `${options.outputDir}/seg_${segIndex
-        .toString()
-        .padStart(4, '0')}.wav`;
-
-      const speed = effectiveSpeed(
-        voice.speed,
-        seg.emotion,
-        seg.intensity,
-        (e, i) => getEmotionModulation(e, i, seg.speaker).speedMultiplier,
-        options.playbackSpeedMultiplier,
-      );
-
-      const text = applyPronunciation(seg.text, options.pronunciationMap);
-
-      const result = await this.renderSegment({
-        id,
-        text,
-        voice,
-        speed,
-        outputPath,
-      });
-
-      return {
-        index: segIndex,
-        pauseBeforeMs: pauseTypeToMs(seg.pauseBefore, options.pauseMultiplier),
-        filePath: result.filePath,
-        durationMs: result.durationMs,
-        speaker: seg.speaker,
-        text: seg.text,
-        emotion: seg.emotion,
-        intensity: seg.intensity,
-      };
-    };
-
-    let cursor = 0;
-    for (let k = 0; k < Math.min(options.lookahead, segments.length); k++) {
-      queue.push(renderOne(k));
-      cursor = k + 1;
-    }
-
-    while (queue.length > 0) {
-      const seg = await queue.shift()!;
-      yield seg;
-      options.events?.onProgress?.(seg.index, segments.length);
-      if (cursor < segments.length) {
-        queue.push(renderOne(cursor++));
-      }
-    }
-  }
-
   private handleMessage(msg: KokoroHostMessage) {
     if (msg.type === 'ready') {
       this.resolveReady?.();
@@ -237,7 +168,6 @@ export class KokoroWebViewRenderer implements ITTSRenderer {
       const pending = this.pending.get(msg.id);
       if (!pending) return;
       this.pending.delete(msg.id);
-      // base64 → file via expo-file-system (legacy API supports base64).
       const fileUri = pending.outputPath.startsWith('file://')
         ? pending.outputPath
         : `file://${pending.outputPath}`;
@@ -256,28 +186,4 @@ export class KokoroWebViewRenderer implements ITTSRenderer {
         );
     }
   }
-}
-
-// ── Helpers ─────────────────────────────────────────────────────
-
-function pickVoice(map: VoiceMap, speaker: string): BlendedVoice {
-  return (
-    map.mappings[speaker] ||
-    map.mappings.narrator ||
-    map.mappings[Object.keys(map.mappings)[0]]
-  );
-}
-
-function applyPronunciation(
-  text: string,
-  pronunciationMap?: Record<string, string>,
-): string {
-  if (!pronunciationMap) return text;
-  let out = text;
-  for (const [name, pron] of Object.entries(pronunciationMap)) {
-    if (!name || !pron || pron === name) continue;
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    out = out.replace(new RegExp(`\\b${escaped}\\b`, 'g'), pron);
-  }
-  return out;
 }

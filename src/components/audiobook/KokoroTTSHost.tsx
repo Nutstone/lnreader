@@ -33,7 +33,13 @@ const KokoroTTSHost: React.FC<Props> = ({ active }) => {
   const bridge = useMemo<KokoroHostBridge>(
     () => ({
       post: (payload: object) => {
-        const json = JSON.stringify(payload).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        // U+2028/U+2029 are line terminators in JS source and would
+        // break the surrounding string literal — escape before injecting.
+        const json = JSON.stringify(payload)
+          .replace(/\\/g, '\\\\')
+          .replace(/'/g, "\\'")
+          .replace(/\u2028/g, '\\u2028')
+          .replace(/\u2029/g, '\\u2029');
         webRef.current?.injectJavaScript(
           `window.dispatchEvent(new MessageEvent('message', { data: '${json}' })); true;`,
         );

@@ -196,7 +196,7 @@ const TTSTab: React.FC = () => {
     setChapterGeneralSettings,
   } = useChapterGeneralSettings();
 
-  const { tts, audiobook, setChapterReaderSettings } = useChapterReaderSettings();
+  const { tts, setChapterReaderSettings } = useChapterReaderSettings();
   const [voices, setVoices] = useState<Voice[]>([]);
   const [voiceModalVisible, setVoiceModalVisible] = useState(false);
 
@@ -344,21 +344,6 @@ const TTSTab: React.FC = () => {
             theme={theme}
           />
 
-          {AudiobookEnable && (
-            <ReaderSheetPreferenceItem
-              label="Auto Page Advance"
-              value={audiobook?.autoPageAdvance === true}
-              onPress={() =>
-                setChapterReaderSettings({
-                  audiobook: {
-                    ...audiobook,
-                    autoPageAdvance: !(audiobook?.autoPageAdvance === true),
-                  },
-                })
-              }
-              theme={theme}
-            />
-          )}
         </View>
 
         <View style={styles.bottomSpacing} />
