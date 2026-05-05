@@ -31,7 +31,20 @@ jest.mock('@specs/NativeFile', () => ({
     mkdir: (p: string) => {
       mockDirs.add(p);
     },
-    readDir: () => [],
+    readDir: (p: string) => {
+      const out: { name: string; path: string; isDirectory: boolean }[] = [];
+      for (const k of mockFs.keys()) {
+        if (k.startsWith(p + '/') && !k.slice(p.length + 1).includes('/')) {
+          out.push({ name: k.slice(p.length + 1), path: k, isDirectory: false });
+        }
+      }
+      for (const k of mockDirs) {
+        if (k.startsWith(p + '/') && !k.slice(p.length + 1).includes('/')) {
+          out.push({ name: k.slice(p.length + 1), path: k, isDirectory: true });
+        }
+      }
+      return out;
+    },
     getConstants: () => ({
       ExternalDirectoryPath: '/data/test',
       ExternalCachesDirectoryPath: '/data/cache',
@@ -65,15 +78,10 @@ const sampleGlossary: CharacterGlossary = {
   updatedAt: new Date().toISOString(),
 };
 
-// Use the real chapter-key hasher so the cache lookup matches the
-// annotator's output.
-const { chapterKeyFor } = require('../chapterPath');
-
 function mockAnnotator() {
   const buildGlossary = jest.fn(async (): Promise<CharacterGlossary> => sampleGlossary);
-  const annotateChapter = jest.fn(async (chapterId: number, path: string) => ({
+  const annotateChapter = jest.fn(async (chapterId: number) => ({
     chapterId,
-    chapterKey: chapterKeyFor(path),
     segments: [
       {
         text: 'Hello.',
@@ -92,6 +100,7 @@ function mockAnnotator() {
 
 const baseConfig = {
   novelId: 'novel-1',
+  pluginId: 'plugin-1',
   llm: { apiKey: 'sk' },
   tts: {
     playbackSpeed: 1,
@@ -141,55 +150,68 @@ describe('AudiobookPipeline', () => {
     expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(1);
   });
 
-  it('keys annotations by path-hash, not chapter index', async () => {
+  it('keys annotations by chapter id under NOVEL_STORAGE', async () => {
     const annotator = mockAnnotator();
     const pipeline = new AudiobookPipeline(
       { ...baseConfig, novelId: 'novel-3' },
       { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
     );
-    await pipeline.annotateOne({ id: 1, path: '/n/foo', rawText: 'a' });
-    // Same path with a different in-app id: cache hit.
-    await pipeline.annotateOne({ id: 99, path: '/n/foo', rawText: 'a' });
-    expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(1);
-
-    // Different path → new annotation.
-    await pipeline.annotateOne({
-      id: 99,
-      path: '/n/foo-different',
-      rawText: 'a',
-    });
-    expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
+    await pipeline.annotateOne({ id: 7, path: '/n/foo', rawText: 'a' });
+    expect(
+      mockFs.has('/data/test/Novels/plugin-1/novel-3/7/audiobook.json'),
+    ).toBe(true);
+    expect(
+      mockFs.has('/data/test/Novels/plugin-1/novel-3/audiobook.glossary.json'),
+    ).toBe(true);
+    expect(
+      mockFs.has('/data/test/Novels/plugin-1/novel-3/audiobook.voice-map.json'),
+    ).toBe(true);
   });
 
-  it('processChapters annotates a batch and reuses glossary', async () => {
+  it('processChapters annotates a batch and reports completion per chapter', async () => {
     const annotator = mockAnnotator();
     const pipeline = new AudiobookPipeline(
       { ...baseConfig, novelId: 'novel-batch' },
       { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
     );
-    await pipeline.processChapters([
-      { id: 1, path: '/n/1', rawText: 'first' },
-      { id: 2, path: '/n/2', rawText: 'second' },
-    ]);
+    const completed: number[] = [];
+    await pipeline.processChapters(
+      [
+        { id: 1, path: '/n/1', rawText: 'first' },
+        { id: 2, path: '/n/2', rawText: 'second' },
+      ],
+      undefined,
+      id => {
+        completed.push(id);
+      },
+    );
+    expect(completed).toEqual([1, 2]);
     expect((annotator.buildGlossary as jest.Mock).mock.calls).toHaveLength(1);
     expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
 
     // Re-running is idempotent — annotations are cached.
-    await pipeline.processChapters([
-      { id: 1, path: '/n/1', rawText: 'first' },
-      { id: 2, path: '/n/2', rawText: 'second' },
-    ]);
-    expect((annotator.buildGlossary as jest.Mock).mock.calls).toHaveLength(1);
+    completed.length = 0;
+    await pipeline.processChapters(
+      [
+        { id: 1, path: '/n/1', rawText: 'first' },
+        { id: 2, path: '/n/2', rawText: 'second' },
+      ],
+      undefined,
+      id => {
+        completed.push(id);
+      },
+    );
+    // Callback still fires for chapters whose annotations are already
+    // cached so callers can refresh DB flags etc.
+    expect(completed).toEqual([1, 2]);
     expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
   });
 
   it('discovers new speakers mid-novel and extends glossary', async () => {
     const annotator = mockAnnotator();
-    // Single chapter with 4 unknown speakers — triggers discovery.
     (annotator.annotateChapter as jest.Mock).mockImplementationOnce(
-      async (chapterId: number, path: string) => ({
+      async (chapterId: number) => ({
         chapterId,
-        chapterKey: chapterKeyFor(path),
         segments: [
           { text: '"Hi"', speaker: 'NewA', emotion: 'neutral', intensity: 2, isDialogue: true, pauseBefore: 'short' },
           { text: '"Yo"', speaker: 'NewB', emotion: 'neutral', intensity: 2, isDialogue: true, pauseBefore: 'short' },
@@ -222,16 +244,25 @@ describe('AudiobookPipeline', () => {
     );
   });
 
-  it('clearCache wipes all per-novel artefacts', async () => {
+  it('clearCache wipes audiobook artefacts but keeps the chapter dir', async () => {
     const annotator = mockAnnotator();
     const pipeline = new AudiobookPipeline(
-      { ...baseConfig, novelId: 'novel-4' },
+      { ...baseConfig, novelId: 'novel-clear' },
       { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
     );
-    await pipeline.annotateOne({ id: 1, path: '/n/1', rawText: 'a' });
-    expect(await pipeline.getGlossary()).not.toBeNull();
+    await pipeline.annotateOne({ id: 5, path: '/n/5', rawText: 'a' });
+    // Simulate a co-located download artefact that must NOT be deleted.
+    mockFs.set('/data/test/Novels/plugin-1/novel-clear/5/index.html', '<p>hi</p>');
+
     await pipeline.clearCache();
+
     expect(await pipeline.getGlossary()).toBeNull();
     expect(await pipeline.getVoiceMap()).toBeNull();
+    expect(
+      mockFs.has('/data/test/Novels/plugin-1/novel-clear/5/audiobook.json'),
+    ).toBe(false);
+    expect(
+      mockFs.has('/data/test/Novels/plugin-1/novel-clear/5/index.html'),
+    ).toBe(true);
   });
 });

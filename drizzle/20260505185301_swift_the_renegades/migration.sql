@@ -1,0 +1,1 @@
+ALTER TABLE `Chapter` ADD `isAvailableAsAudiobook` integer DEFAULT false;

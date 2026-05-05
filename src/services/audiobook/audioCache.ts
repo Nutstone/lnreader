@@ -2,22 +2,25 @@
  * Audio cache for rendered chapters.
  *
  * Layout (under AUDIOBOOK_AUDIO_CACHE — the OS cache directory):
- *   <novelId>/<chapterKey>/
+ *   <novelId>/<chapterId>/
  *     manifest.json
  *     seg_0001.wav
  *     ...
  *
- * Lives in the cache directory so backups skip it. Glossary, voice
- * map, and annotations stay under AUDIOBOOK_STORAGE (backed up).
+ * Lives in the cache directory so backups skip it. Annotations and
+ * glossary live next to the chapter / novel directories under
+ * NOVEL_STORAGE.
  *
- * Reuses `@specs/NativeFile`. The manifest is the index. There's no
- * size accounting — `NativeFile` doesn't expose stat, and reading every
- * WAV's content to estimate bytes is absurd. The settings screen
- * exposes a single "clear rendered audio" button and that's it.
+ * No size accounting — `NativeFile` doesn't expose stat. Settings has
+ * a single "Clear rendered audio" button, novels have a per-novel
+ * reset.
  */
 
 import NativeFile from '@specs/NativeFile';
-import { AUDIOBOOK_AUDIO_CACHE } from '@utils/Storages';
+import {
+  AUDIOBOOK_AUDIO_CACHE,
+  audiobookAudioDir,
+} from '@utils/Storages';
 import {
   AudioSegmentRef,
   ChapterAudioManifest,
@@ -25,18 +28,13 @@ import {
 } from './types';
 
 export interface AudioCacheKeys {
-  novelId: string;
-  chapterKey: string;
+  novelId: number | string;
   chapterId: number;
 }
 
 export class AudioCache {
-  private novelDir(novelId: string): string {
-    return `${AUDIOBOOK_AUDIO_CACHE}/${novelId}`;
-  }
-
   private chapterDir(keys: AudioCacheKeys): string {
-    return `${this.novelDir(keys.novelId)}/${keys.chapterKey}`;
+    return audiobookAudioDir(keys.novelId, keys.chapterId);
   }
 
   private manifestPath(keys: AudioCacheKeys): string {
@@ -93,7 +91,6 @@ export class AudioCache {
       (a, b) => a.index - b.index,
     );
     const manifest: ChapterAudioManifest = {
-      chapterKey: keys.chapterKey,
       chapterId: keys.chapterId,
       totalSegments:
         totalSegmentsHint ??
@@ -144,9 +141,8 @@ export class AudioCache {
   }
 
   /**
-   * Drop all rendered audio for every novel. Annotations, glossaries,
-   * and voice maps under AUDIOBOOK_STORAGE are NOT touched — wiping
-   * those is what `pipeline.clearCache(novelId)` is for.
+   * Drop all rendered audio for every novel. Annotations and glossaries
+   * stay (they're not in the cache root).
    */
   clearAll(): void {
     if (!NativeFile.exists(AUDIOBOOK_AUDIO_CACHE)) return;
@@ -155,10 +151,10 @@ export class AudioCache {
   }
 
   /**
-   * Drop the rendered-audio cache for one novel (manifest + WAVs).
+   * Drop the rendered-audio cache for one novel.
    */
-  clearForNovel(novelId: string): void {
-    const dir = this.novelDir(novelId);
+  clearForNovel(novelId: number | string): void {
+    const dir = `${AUDIOBOOK_AUDIO_CACHE}/${novelId}`;
     if (NativeFile.exists(dir)) NativeFile.unlink(dir);
   }
 }

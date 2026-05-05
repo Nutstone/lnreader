@@ -31,8 +31,6 @@ import {
   buildGlossaryPromptUserMessage,
   buildGlossaryUpdateUserMessage,
 } from './prompts/glossaryBuilder';
-import { chapterKeyFor } from './chapterPath';
-
 const LLM_TIMEOUT_MS = 60_000;
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
@@ -109,7 +107,6 @@ export class LLMAnnotator {
 
   async annotateChapter(
     chapterId: number,
-    chapterPath: string,
     chapterText: string,
     glossary: CharacterGlossary,
   ): Promise<ChapterAnnotation> {
@@ -126,7 +123,6 @@ export class LLMAnnotator {
     }
     return {
       chapterId,
-      chapterKey: chapterKeyFor(chapterPath),
       segments: data.segments.map(s => ({
         text: s.text ?? '',
         speaker: s.speaker || 'narrator',

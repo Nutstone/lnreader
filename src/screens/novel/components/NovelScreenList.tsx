@@ -6,7 +6,6 @@ import { pickCustomNovelCover } from '@database/queries/NovelQueries';
 import { ChapterInfo, NovelInfo } from '@database/types';
 import { useBoolean } from '@hooks/index';
 import { useAppSettings, useDownload, useTheme } from '@hooks/persisted';
-import { useAudiobookReadyChapters } from '@hooks/useAudiobookReadyChapters';
 import {
   updateNovel,
   updateNovelPage,
@@ -111,10 +110,6 @@ const NovelScreenList = ({
   const { top: topInset, bottom: bottomInset } = useSafeAreaInsets();
 
   const { downloadingChapterIds, downloadChapter } = useDownload();
-  const { ready: audiobookReadyIds } = useAudiobookReadyChapters(
-    fetchedNovel?.id,
-    chapters,
-  );
 
   // Mark chapters as downloaded when their download completes
   const prevDownloadingRef = useRef(downloadingChapterIds);
@@ -503,7 +498,6 @@ const NovelScreenList = ({
               isDownloading={downloadingChapterIds.has(item.id)}
               isBookmarked={!!item.bookmark}
               isLocal={novel.isLocal ?? false}
-              hasAudiobook={audiobookReadyIds.has(item.id)}
               theme={theme}
               showChapterTitles={showChapterTitles}
               isSelected={selectedIds.has(item.id)}
@@ -516,7 +510,7 @@ const NovelScreenList = ({
           );
         }}
         keyExtractor={chapterKeyExtractor}
-        extraData={[downloadingChapterIds, selectedIds, audiobookReadyIds]}
+        extraData={[downloadingChapterIds, selectedIds]}
         contentContainerStyle={styles.contentContainer}
         refreshControl={refreshControlElement}
         onEndReached={getNextChapterBatch}
