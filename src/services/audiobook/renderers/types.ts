@@ -3,19 +3,9 @@
  * implementations (WebView Kokoro now; native Kokoro module later).
  */
 
-import {
-  AudioSegment,
-  BlendedVoice,
-  ChapterAnnotation,
-  Emotion,
-  EmotionIntensity,
-  VoiceMap,
-} from '../types';
+import { BlendedVoice, Emotion, EmotionIntensity, KokoroDtype } from '../types';
 
-export interface RenderEvents {
-  onProgress?: (segmentIndex: number, total: number) => void;
-  onError?: (err: Error) => void;
-}
+export type { KokoroDtype } from '../types';
 
 export interface SynthesisRequest {
   /** Stable id used to correlate request/response in async transports. */
@@ -39,11 +29,6 @@ export interface ITTSRenderer {
   initialize(): Promise<void>;
   isReady(): boolean;
   renderSegment(req: SynthesisRequest): Promise<SynthesisResult>;
-  streamChapterAudio(
-    annotation: ChapterAnnotation,
-    voiceMap: VoiceMap,
-    options: StreamOptions,
-  ): AsyncGenerator<AudioSegment>;
   dispose(): Promise<void>;
 }
 
@@ -56,17 +41,14 @@ export interface StreamOptions {
   pronunciationMap?: Record<string, string>;
   /** Output dir for rendered audio files. */
   outputDir: string;
-  events?: RenderEvents;
 }
 
 export interface RendererCapabilities {
   requiresDownload: boolean;
   modelDownloaded: boolean;
   modelSizeBytes?: number;
-  dtype?: string;
+  dtype?: KokoroDtype;
 }
-
-export type KokoroDtype = 'q4' | 'q4f16' | 'q8' | 'fp16' | 'fp32';
 
 export function effectiveSpeed(
   baseSpeed: number,

@@ -1,15 +1,11 @@
 /**
- * AudiobookPlayer — app-scoped singleton player service.
+ * AudiobookPlayer — app-scoped singleton player.
  *
- * Owns the playback state machine, audio session, and lock-screen
- * controls. Subscribers (mini-player, full player screen, reader) get
- * state updates via `subscribe(listener)`. The service survives
- * navigation; only `.dispose()` tears it down.
+ * Owns the playback state machine and the audio session. Subscribers
+ * (the reader) get state updates via `subscribe(listener)`.
  */
 
 import { Audio } from 'expo-av';
-import NativeFile from '@specs/NativeFile';
-import { getMMKVObject, setMMKVObject } from '@utils/mmkv/mmkv';
 import {
   showTTSNotification,
   updateTTSNotification,
@@ -17,32 +13,25 @@ import {
   updateTTSProgress,
   dismissTTSNotification,
 } from '@utils/ttsNotification';
+import { setChapterAudiobookAvailable } from '@database/queries/ChapterQueries';
 import {
   AudioSegment,
   AudiobookConfig,
   ChapterAnnotation,
   INITIAL_PLAYER_STATE,
-  LastPlayed,
   PlayerError,
   PlayerState,
 } from './types';
-import { AudiobookPipeline, ChapterRef, ChapterWithText } from './pipeline';
+import { AudiobookPipeline, ChapterRef } from './pipeline';
 import { ITTSRenderer } from './renderers/types';
 import { KokoroWebViewRenderer } from './renderers/KokoroWebViewRenderer';
 import { sleep } from '@utils/sleep';
 
-const LAST_PLAYED_PREFIX = 'AUDIOBOOK_LAST_';
-const PREFS_PREFIX = 'AUDIOBOOK_PREFS_';
-
 export interface NovelMeta {
   id: number | string;
+  pluginId: string;
   name: string;
   cover?: string;
-}
-
-export interface PerNovelPrefs {
-  speed?: number;
-  sleepTimerMinutes?: number;
 }
 
 export type StateListener = (state: PlayerState) => void;
@@ -60,8 +49,6 @@ class AudiobookPlayerService {
   private generator: AsyncGenerator<AudioSegment> | null = null;
   private waiters: Array<() => void> = [];
   private rendererBufferingPromise: Promise<void> | null = null;
-  private sleepTimerHandle: ReturnType<typeof setTimeout> | null = null;
-  private positionPollHandle: ReturnType<typeof setInterval> | null = null;
 
   // ── Subscription ────────────────────────────────────────────────
 
@@ -72,7 +59,9 @@ class AudiobookPlayerService {
   subscribe(listener: StateListener): () => void {
     this.listeners.add(listener);
     listener(this.state);
-    return () => this.listeners.delete(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   private setState(patch: Partial<PlayerState>) {
@@ -94,20 +83,15 @@ class AudiobookPlayerService {
     this.currentNovel = novel;
   }
 
-  private getRenderer(): ITTSRenderer {
+  private getRenderer(dtype: AudiobookConfig['tts']['dtype']): ITTSRenderer {
     if (!this.renderer) {
-      this.renderer = new KokoroWebViewRenderer('q8');
+      this.renderer = new KokoroWebViewRenderer(dtype);
     }
     return this.renderer;
   }
 
   // ── Public controls ─────────────────────────────────────────────
 
-  /**
-   * Play a chapter. If the chapter has no annotation it'll be created
-   * on the fly (requires `chapterText`). If annotated already, only
-   * `chapterRef` is needed.
-   */
   async playChapter(
     config: AudiobookConfig,
     novel: NovelMeta,
@@ -151,10 +135,17 @@ class AudiobookPlayerService {
         rawText: chapterText,
       });
 
+      // Mark the chapter as audiobook-ready so the chapter list shows
+      // the indicator on next render.
+      try {
+        await setChapterAudiobookAvailable(chapter.id, true);
+      } catch {
+        /* non-fatal */
+      }
+
       this.setState({
         status: 'rendering',
         totalSegments: annotation.segments.length,
-        chapterKey: annotation.chapterKey,
       });
 
       showTTSNotification({
@@ -164,18 +155,16 @@ class AudiobookPlayerService {
         isPlaying: true,
       });
 
-      const renderer = this.getRenderer();
+      const renderer = this.getRenderer(config.tts.dtype);
       this.bufferedSegments = [];
       this.generator = pipeline.streamChapterAudio(chapter, renderer, {
-        lookahead: 3,
+        lookahead: config.tts.lookaheadSegments,
         playbackSpeedMultiplier: this.state.speed,
         pauseMultiplier: 1.0,
-        emotionShaping: true,
+        emotionShaping: config.tts.emotionShaping,
       });
 
-      // Start consuming in the background.
       this.rendererBufferingPromise = this.consumeGenerator();
-      // Wait for the first segment to start playback.
       await this.waitForSegment(0);
       await this.startPlaybackFromIndex(0);
     } catch (e) {
@@ -216,11 +205,8 @@ class AudiobookPlayerService {
   }
 
   async stop(): Promise<void> {
-    const was = this.state.status;
-    if (was === 'idle') return;
+    if (this.state.status === 'idle') return;
     this.setState({ status: 'idle' });
-    this.clearSleepTimer();
-    this.stopPositionPolling();
 
     if (this.generator) {
       try {
@@ -264,39 +250,9 @@ class AudiobookPlayerService {
     if (this.state.status === 'idle') return;
     if (index < 0) return;
     if (index >= this.bufferedSegments.length) {
-      // Wait for renderer to catch up.
       await this.waitForSegment(index);
     }
     await this.startPlaybackFromIndex(index);
-  }
-
-  async skipBackward(seconds = 30): Promise<void> {
-    if (!this.sound) return;
-    try {
-      const status = await this.sound.getStatusAsync();
-      if (status.isLoaded) {
-        const newPos = Math.max(0, (status.positionMillis ?? 0) - seconds * 1000);
-        await this.sound.setPositionAsync(newPos);
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  async skipForward(seconds = 30): Promise<void> {
-    if (!this.sound) return;
-    try {
-      const status = await this.sound.getStatusAsync();
-      if (status.isLoaded) {
-        const newPos = Math.min(
-          status.durationMillis ?? Number.MAX_SAFE_INTEGER,
-          (status.positionMillis ?? 0) + seconds * 1000,
-        );
-        await this.sound.setPositionAsync(newPos);
-      }
-    } catch {
-      /* ignore */
-    }
   }
 
   async nextSegment(): Promise<void> {
@@ -317,57 +273,6 @@ class AudiobookPlayerService {
         /* ignore */
       }
     }
-    if (this.currentNovel) {
-      const prefs = this.getPrefs(String(this.currentNovel.id));
-      this.setPrefs(String(this.currentNovel.id), { ...prefs, speed: clamped });
-    }
-  }
-
-  setSleepTimer(minutes: number | null): void {
-    this.clearSleepTimer();
-    if (!minutes || minutes <= 0) {
-      this.setState({ sleepTimerEndsAt: undefined });
-      return;
-    }
-    const endsAt = Date.now() + minutes * 60_000;
-    this.setState({ sleepTimerEndsAt: endsAt });
-    this.sleepTimerHandle = setTimeout(() => {
-      this.pause();
-      this.setState({ sleepTimerEndsAt: undefined });
-    }, minutes * 60_000);
-  }
-
-  private clearSleepTimer() {
-    if (this.sleepTimerHandle) {
-      clearTimeout(this.sleepTimerHandle);
-      this.sleepTimerHandle = null;
-    }
-  }
-
-  // ── Persistence ─────────────────────────────────────────────────
-
-  getLastPlayed(novelId: string | number): LastPlayed | undefined {
-    return getMMKVObject<LastPlayed>(`${LAST_PLAYED_PREFIX}${novelId}`);
-  }
-
-  private saveLastPlayed() {
-    if (!this.currentChapter || !this.currentNovel || !this.state.chapterKey) return;
-    setMMKVObject<LastPlayed>(`${LAST_PLAYED_PREFIX}${this.currentNovel.id}`, {
-      novelId: String(this.currentNovel.id),
-      chapterId: this.currentChapter.id,
-      chapterKey: this.state.chapterKey,
-      segmentIndex: this.state.segmentIndex,
-      positionMs: this.state.positionMs,
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  getPrefs(novelId: string): PerNovelPrefs {
-    return getMMKVObject<PerNovelPrefs>(`${PREFS_PREFIX}${novelId}`) ?? {};
-  }
-
-  private setPrefs(novelId: string, prefs: PerNovelPrefs) {
-    setMMKVObject<PerNovelPrefs>(`${PREFS_PREFIX}${novelId}`, prefs);
   }
 
   // ── Internals ───────────────────────────────────────────────────
@@ -377,7 +282,6 @@ class AudiobookPlayerService {
     try {
       for await (const seg of this.generator) {
         this.bufferedSegments.push(seg);
-        // Update total duration progressively.
         const total = this.bufferedSegments.reduce(
           (s, x) => s + x.durationMs + x.pauseBeforeMs,
           0,
@@ -422,7 +326,6 @@ class AudiobookPlayerService {
       await this.waitForSegment(index);
     }
     if (index >= this.bufferedSegments.length) {
-      // generator finished without producing this index — chapter done.
       this.setState({ status: 'idle' });
       return;
     }
@@ -438,7 +341,6 @@ class AudiobookPlayerService {
       positionMs: 0,
     });
 
-    // Pause before segment.
     if (seg.pauseBeforeMs > 0) {
       await sleep(seg.pauseBeforeMs);
       if (this.state.status !== 'playing') return;
@@ -451,7 +353,6 @@ class AudiobookPlayerService {
       );
       this.sound = sound;
       this.attachStatusUpdates(sound, index);
-      this.startPositionPolling();
       updateTTSNotification({
         novelName: this.currentNovel?.name ?? '',
         chapterName: `${this.currentChapter?.name ?? ''} — ${seg.speaker}`,
@@ -472,47 +373,13 @@ class AudiobookPlayerService {
   private attachStatusUpdates(sound: Audio.Sound, index: number) {
     sound.setOnPlaybackStatusUpdate(status => {
       if (!status.isLoaded) return;
-      this.setState({
-        positionMs: status.positionMillis ?? 0,
-      });
-      if (status.didJustFinish) {
-        // Cleanup file-references; keep WAVs on disk (audio cache).
-        try {
-          if (NativeFile.exists(this.bufferedSegments[index].filePath)) {
-            // Don't unlink — they're cached for replay.
-          }
-        } catch {
-          /* ignore */
-        }
-        this.saveLastPlayed();
-        if (this.state.status === 'playing') {
-          this.startPlaybackFromIndex(index + 1);
-        }
+      this.setState({ positionMs: status.positionMillis ?? 0 });
+      if (status.didJustFinish && this.state.status === 'playing') {
+        this.startPlaybackFromIndex(index + 1);
       }
     });
-  }
-
-  private startPositionPolling() {
-    this.stopPositionPolling();
-    this.positionPollHandle = setInterval(() => {
-      this.saveLastPlayed();
-    }, 5000);
-  }
-
-  private stopPositionPolling() {
-    if (this.positionPollHandle) {
-      clearInterval(this.positionPollHandle);
-      this.positionPollHandle = null;
-    }
   }
 }
 
 export const audiobookPlayer = new AudiobookPlayerService();
 export type { AudiobookPlayerService };
-
-// Convenience helper used by the player + reader hooks.
-export function buildChapterText(rawText: string): ChapterWithText {
-  // Wrapper for callers that already have a fully-formed chapter+text.
-  // No-op here; left as a hook for future preprocessing.
-  return rawText as unknown as ChapterWithText;
-}

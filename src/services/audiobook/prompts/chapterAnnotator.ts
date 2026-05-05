@@ -107,26 +107,20 @@ Guidelines:
 
 Respond by calling the emit_annotation tool with structured arguments. Do NOT respond with prose.`;
 
-export function buildGlossarySummary(glossary: CharacterGlossary): string {
+export function buildAnnotationUserMessage(
+  glossary: CharacterGlossary,
+  chapterText: string,
+): string {
   const characters = glossary.characters
     .map(c => `- ${c.name} (${c.gender}): ${c.description}`)
     .join('\n');
   return [
     `Narrator: ${glossary.narratorGender}, hints: ${glossary.narratorVoiceHints.join(', ') || '—'}`,
     '',
-    `Characters:`,
+    'Characters:',
     characters || '(none yet)',
-  ].join('\n');
-}
-
-export function buildAnnotationUserMessage(
-  glossary: CharacterGlossary,
-  chapterText: string,
-): string {
-  return [
-    buildGlossarySummary(glossary),
     '',
-    `Annotate this chapter:`,
+    'Annotate this chapter:',
     '',
     chapterText,
   ].join('\n');

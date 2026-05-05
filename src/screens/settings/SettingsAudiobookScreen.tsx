@@ -1,11 +1,11 @@
 /**
  * Audiobook Settings.
  *
- * Single-page configuration. Provider chips → key → model → quality →
- * cache. No spinners-without-labels; no inputs without help text.
+ * Single Anthropic provider, single TTS engine. Just the knobs that
+ * actually affect playback.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
 
@@ -14,54 +14,34 @@ import { useTheme } from '@hooks/persisted';
 import { useAudiobookSettings } from '@hooks/persisted/useAudiobookSettings';
 import { AudiobookSettingsScreenProps } from '@navigators/types';
 import { LLMAnnotator } from '@services/audiobook/llmAnnotator';
-import {
-  PRICING_TABLE,
-  recommendedModelFor,
-} from '@services/audiobook/pricing';
 import { AudioCache } from '@services/audiobook/audioCache';
+import { KokoroDtype } from '@services/audiobook';
 import { showToast } from '@utils/showToast';
 
 const audioCache = new AudioCache();
+const DTYPES: KokoroDtype[] = ['q4', 'q4f16', 'q8', 'fp16', 'fp32'];
 
-const AudiobookSettingsScreen = ({ navigation }: AudiobookSettingsScreenProps) => {
+const AudiobookSettingsScreen = ({
+  navigation,
+}: AudiobookSettingsScreenProps) => {
   const theme = useTheme();
   const settings = useAudiobookSettings();
 
   const [apiKey, setApiKey] = useState(settings.apiKey);
-  const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState<'idle' | 'pending' | 'ok' | 'fail'>(
     'idle',
   );
   const [testMessage, setTestMessage] = useState<string>('');
-  const [cacheBytes, setCacheBytes] = useState<number | null>(null);
-
-  useEffect(() => {
-    refreshCacheSize();
-  }, []);
-
-  const refreshCacheSize = async () => {
-    try {
-      const total = audioCache.computeTotalSize();
-      setCacheBytes(total);
-    } catch {
-      setCacheBytes(null);
-    }
-  };
 
   const testConnection = async () => {
     setTesting('pending');
     setTestMessage('');
     try {
-      const annotator = new LLMAnnotator({
-        provider: settings.llmProvider,
-        apiKey,
-        baseUrl,
-        model: settings.model,
-        enablePromptCaching: settings.enablePromptCaching,
-      });
-      // Smallest possible call: a one-character glossary build.
-      await annotator.buildGlossary('test', ['test sample for connection check']);
+      const annotator = new LLMAnnotator({ apiKey, model: settings.model });
+      await annotator.buildGlossary('test', [
+        'test sample for connection check',
+      ]);
       setTesting('ok');
       setTestMessage('Connected.');
     } catch (e) {
@@ -69,10 +49,6 @@ const AudiobookSettingsScreen = ({ navigation }: AudiobookSettingsScreenProps) =
       setTestMessage(e instanceof Error ? e.message : String(e));
     }
   };
-
-  const modelsForProvider = PRICING_TABLE.filter(
-    p => p.provider === settings.llmProvider,
-  );
 
   return (
     <SafeAreaView excludeTop>
@@ -90,110 +66,36 @@ const AudiobookSettingsScreen = ({ navigation }: AudiobookSettingsScreenProps) =
             Multi-voice narration
           </Text>
           <Text style={[styles.heroBody, { color: theme.onSurfaceVariant }]}>
-            A cloud LLM analyses each chapter and assigns voices to characters.
-            Audio is rendered on-device by Kokoro and cached so replays work
+            Claude annotates each chapter into per-character segments. Audio
+            is rendered on-device by Kokoro and cached so replays work
             offline.
           </Text>
         </Card>
 
-        <Section title="Provider" theme={theme}>
-          <View style={styles.chipRow}>
-            <Chip
-              label="Claude"
-              active={settings.llmProvider === 'anthropic'}
-              onPress={() =>
-                settings.setAudiobookSettings({ llmProvider: 'anthropic' })
-              }
-              theme={theme}
-            />
-            <Chip
-              label="Local (Ollama)"
-              active={settings.llmProvider === 'ollama'}
-              onPress={() =>
-                settings.setAudiobookSettings({ llmProvider: 'ollama' })
-              }
-              theme={theme}
-            />
-          </View>
-          <Text style={[styles.help, { color: theme.onSurfaceVariant }]}>
-            {settings.llmProvider === 'anthropic'
-              ? 'Cloud. Best quality. Per-chapter cost is small with prompt caching.'
-              : 'Local. Free. Requires Ollama running on your network.'}
-          </Text>
-        </Section>
-
-        {settings.llmProvider === 'anthropic' ? (
-          <Section title="Claude API key" theme={theme}>
-            <View style={styles.inputRow}>
-              <TextInput
-                mode="outlined"
-                value={apiKey}
-                onChangeText={setApiKey}
-                onBlur={() => settings.setAudiobookSettings({ apiKey })}
-                secureTextEntry={!showKey}
-                placeholder="sk-ant-…"
-                style={styles.flex}
-                dense
-                theme={{ colors: { ...theme } }}
-              />
-              <Pressable
-                style={styles.eyeBtn}
-                onPress={() => setShowKey(s => !s)}
-              >
-                <Text style={{ color: theme.primary }}>
-                  {showKey ? 'Hide' : 'Show'}
-                </Text>
-              </Pressable>
-            </View>
-            <Text style={[styles.help, { color: theme.onSurfaceVariant }]}>
-              Stored locally; never sent to LNReader servers. Get a key at
-              console.anthropic.com.
-            </Text>
-          </Section>
-        ) : (
-          <Section title="Ollama base URL" theme={theme}>
+        <Section title="Claude API key" theme={theme}>
+          <View style={styles.inputRow}>
             <TextInput
               mode="outlined"
-              value={baseUrl}
-              onChangeText={setBaseUrl}
-              onBlur={() => settings.setAudiobookSettings({ baseUrl })}
-              placeholder="http://192.168.1.10:11434"
+              value={apiKey}
+              onChangeText={setApiKey}
+              onBlur={() => settings.setAudiobookSettings({ apiKey })}
+              secureTextEntry={!showKey}
+              placeholder="sk-ant-…"
+              style={styles.flex}
               dense
               theme={{ colors: { ...theme } }}
             />
-            <Text style={[styles.help, { color: theme.onSurfaceVariant }]}>
-              Run `ollama serve` on a PC and expose port 11434 to your phone.
-            </Text>
-          </Section>
-        )}
-
-        <Section title="Model" theme={theme}>
-          <View style={styles.chipRow}>
-            <Chip
-              label="Recommended"
-              active={!settings.model}
-              onPress={() => settings.setAudiobookSettings({ model: '' })}
-              theme={theme}
-            />
-            {modelsForProvider.map(m => (
-              <Chip
-                key={m.model}
-                label={m.model}
-                active={settings.model === m.model}
-                onPress={() =>
-                  settings.setAudiobookSettings({ model: m.model })
-                }
-                theme={theme}
-              />
-            ))}
+            <Pressable
+              style={styles.eyeBtn}
+              onPress={() => setShowKey(s => !s)}
+            >
+              <Text style={{ color: theme.primary }}>
+                {showKey ? 'Hide' : 'Show'}
+              </Text>
+            </Pressable>
           </View>
           <Text style={[styles.help, { color: theme.onSurfaceVariant }]}>
-            {settings.model
-              ? PRICING_TABLE.find(p => p.model === settings.model)
-                  ?.description ?? ''
-              : `Default: ${recommendedModelFor(settings.llmProvider).model} — ${
-                  recommendedModelFor(settings.llmProvider).description
-                }`}
+            Stored locally. Get a key at console.anthropic.com.
           </Text>
         </Section>
 
@@ -225,35 +127,9 @@ const AudiobookSettingsScreen = ({ navigation }: AudiobookSettingsScreenProps) =
           </View>
         </Section>
 
-        {settings.llmProvider === 'anthropic' ? (
-          <Section title="Prompt caching" theme={theme}>
-            <View style={styles.chipRow}>
-              <Chip
-                label="On"
-                active={settings.enablePromptCaching}
-                onPress={() =>
-                  settings.setAudiobookSettings({ enablePromptCaching: true })
-                }
-                theme={theme}
-              />
-              <Chip
-                label="Off"
-                active={!settings.enablePromptCaching}
-                onPress={() =>
-                  settings.setAudiobookSettings({ enablePromptCaching: false })
-                }
-                theme={theme}
-              />
-            </View>
-            <Text style={[styles.help, { color: theme.onSurfaceVariant }]}>
-              Reduces input cost ~10× for chapters after the first. Leave on.
-            </Text>
-          </Section>
-        ) : null}
-
         <Section title="Voice quality" theme={theme}>
           <View style={styles.chipRow}>
-            {(['q4', 'q4f16', 'q8', 'fp16', 'fp32'] as const).map(q => (
+            {DTYPES.map(q => (
               <Chip
                 key={q}
                 label={q}
@@ -264,8 +140,7 @@ const AudiobookSettingsScreen = ({ navigation }: AudiobookSettingsScreenProps) =
             ))}
           </View>
           <Text style={[styles.help, { color: theme.onSurfaceVariant }]}>
-            Trade-off between size and quality. q8 is the default
-            recommended for most phones.
+            Trade-off between size and quality. q8 is the default.
           </Text>
         </Section>
 
@@ -306,27 +181,20 @@ const AudiobookSettingsScreen = ({ navigation }: AudiobookSettingsScreenProps) =
           />
         </Section>
 
-        <Section title="Cache" theme={theme}>
-          <Text style={{ color: theme.onSurfaceVariant }}>
-            Total: {cacheBytes !== null ? formatBytes(cacheBytes) : '—'}
-          </Text>
+        <Section title="Rendered audio" theme={theme}>
           <Text style={[styles.help, { color: theme.onSurfaceVariant }]}>
-            Limit: {settings.maxCacheSizeMB} MB. Oldest chapters are evicted
-            when the limit is reached.
+            Drop the rendered WAVs for every novel to free up space.
+            Annotations and voice maps stay (they cost real LLM money).
+            To wipe everything for one novel, use the headphones menu on
+            its detail screen.
           </Text>
           <View style={styles.cacheBtns}>
             <Button
-              title="Refresh"
-              mode="outlined"
-              onPress={refreshCacheSize}
-            />
-            <Button
-              title="Clear cache"
+              title="Clear rendered audio"
               mode="outlined"
               onPress={() => {
-                audioCache.evictAll();
-                refreshCacheSize();
-                showToast('Audiobook cache cleared');
+                audioCache.clearAll();
+                showToast('Rendered audio cleared');
               }}
             />
           </View>
@@ -371,15 +239,11 @@ const Chip: React.FC<{
     onPress={onPress}
     style={[
       styles.chip,
-      {
-        backgroundColor: active ? theme.primary : theme.surfaceVariant,
-      },
+      { backgroundColor: active ? theme.primary : theme.surfaceVariant },
     ]}
   >
     <Text
-      style={{
-        color: active ? theme.onPrimary : theme.onSurfaceVariant,
-      }}
+      style={{ color: active ? theme.onPrimary : theme.onSurfaceVariant }}
     >
       {label}
     </Text>
@@ -407,13 +271,6 @@ const Toggle: React.FC<{
     </View>
   </Pressable>
 );
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },

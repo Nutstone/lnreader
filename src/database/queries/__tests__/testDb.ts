@@ -35,6 +35,7 @@ const MIGRATION_STATEMENTS = [
 	unread integer DEFAULT true,
 	readTime text,
 	isDownloaded integer DEFAULT false,
+	isAvailableAsAudiobook integer DEFAULT false,
 	updatedTime text,
 	chapterNumber real,
 	page text DEFAULT '1',

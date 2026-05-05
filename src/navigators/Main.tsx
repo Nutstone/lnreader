@@ -39,8 +39,6 @@ import ServiceManager from '@services/ServiceManager';
 import ReaderStack from './ReaderStack';
 import { LibraryContextProvider } from '@components/Context/LibraryContext';
 import { UpdateContextProvider } from '@components/Context/UpdateContext';
-import AudiobookPlayerScreen from '@screens/audiobook/AudiobookPlayerScreen';
-import GlossaryEditorScreen from '@screens/audiobook/GlossaryEditorScreen';
 import AudiobookHostMount from '@components/audiobook/AudiobookHostMount';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -127,8 +125,6 @@ const MainNavigator = () => {
             <Stack.Screen name="SourceNovels" component={SourceNovels} />
             <Stack.Screen name="MigrateNovel" component={MigrateNovel} />
             <Stack.Screen name="WebviewScreen" component={WebviewScreen} />
-            <Stack.Screen name="AudiobookPlayer" component={AudiobookPlayerScreen} />
-            <Stack.Screen name="AudiobookGlossary" component={GlossaryEditorScreen} />
           </Stack.Navigator>
           <AudiobookHostMount />
         </UpdateContextProvider>

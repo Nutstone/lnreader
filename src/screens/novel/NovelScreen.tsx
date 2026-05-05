@@ -33,13 +33,9 @@ import { SafeAreaView } from '@components';
 import { useNovelContext } from './NovelContext';
 import { LegendListRef } from '@legendapp/list';
 import ServiceManager from '@services/ServiceManager';
-import { AudioCache, AudiobookPipeline } from '@services/audiobook';
-import { useAudiobookSettings } from '@hooks/persisted/useAudiobookSettings';
+import { AudiobookPipeline } from '@services/audiobook';
+import { clearAudiobookAvailableForNovel } from '@database/queries/ChapterQueries';
 import { showToast } from '@utils/showToast';
-import CostPreviewModal from '@components/audiobook/CostPreviewModal';
-import type { CostEstimate } from '@services/audiobook';
-
-const audiobookCacheClient = new AudioCache();
 
 const Novel = ({ route, navigation }: NovelScreenProps) => {
   const {
@@ -126,14 +122,8 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
     setFalse: closeDlChapterModal,
   } = useBoolean();
 
-  const audiobookSettings = useAudiobookSettings();
-  const [pendingAudiobook, setPendingAudiobook] = useState<{
-    chapters: ChapterInfo[];
-    estimate: CostEstimate | null;
-  } | null>(null);
-
   const startAudiobookBatch = useCallback(
-    async (amount: number | 'all' | 'unread') => {
+    (amount: number | 'all' | 'unread') => {
       if (!novel) return;
       let target: ChapterInfo[];
       if (amount === 'all') {
@@ -147,62 +137,36 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
         showToast('No chapters to process.');
         return;
       }
-      const pipeline = new AudiobookPipeline({
-        novelId: String(novel.id),
-        llm: {
-          provider: audiobookSettings.llmProvider,
-          apiKey: audiobookSettings.apiKey,
-          baseUrl: audiobookSettings.baseUrl,
-          model: audiobookSettings.model,
-          enablePromptCaching: audiobookSettings.enablePromptCaching,
-        },
-        tts: {
-          playbackSpeed: 1.0,
-          emotionShaping: audiobookSettings.emotionShaping,
-          lookaheadSegments: audiobookSettings.lookaheadSegments,
+      ServiceManager.manager.addTask({
+        name: 'AUDIOBOOK_PIPELINE',
+        data: {
+          novelId: novel.id,
+          novelName: novel.name,
+          pluginId: novel.pluginId,
+          chapterIds: target.map(c => c.id),
+          chapterPaths: target.map(c => c.path),
         },
       });
-      const estimate = await pipeline.estimateCost(
-        target.map(c => ({
-          id: c.id,
-          path: c.path,
-          rawText: c.name ?? '',
-        })),
-      );
-      setPendingAudiobook({ chapters: target, estimate });
+      showToast(`Audiobook queued for ${target.length} chapters.`);
     },
-    [audiobookSettings, chapters, novel],
+    [chapters, novel],
   );
 
-  const confirmAudiobookBatch = useCallback(() => {
-    if (!novel || !pendingAudiobook) return;
-    ServiceManager.manager.addTask({
-      name: 'AUDIOBOOK_PIPELINE',
-      data: {
-        novelId: novel.id,
-        novelName: novel.name,
-        pluginId: novel.pluginId,
-        chapterIds: pendingAudiobook.chapters.map(c => c.id),
-        chapterPaths: pendingAudiobook.chapters.map(c => c.path),
+  const clearAudiobookCache = useCallback(async () => {
+    if (!novel) return;
+    const pipeline = new AudiobookPipeline({
+      novelId: novel.id,
+      pluginId: novel.pluginId,
+      llm: {},
+      tts: {
+        playbackSpeed: 1,
+        emotionShaping: false,
+        lookaheadSegments: 1,
+        dtype: 'q8',
       },
     });
-    setPendingAudiobook(null);
-    showToast(
-      `Audiobook queued for ${pendingAudiobook.chapters.length} chapters.`,
-    );
-  }, [novel, pendingAudiobook]);
-
-  const openGlossaryEditor = useCallback(() => {
-    if (!novel) return;
-    (navigation as any).navigate('AudiobookGlossary', {
-      novelId: String(novel.id),
-      novelName: novel.name,
-    });
-  }, [navigation, novel]);
-
-  const clearAudiobookCache = useCallback(() => {
-    if (!novel) return;
-    audiobookCacheClient.evictNovel(String(novel.id));
+    await pipeline.clearCache();
+    await clearAudiobookAvailableForNovel(novel.id);
     showToast('Audiobook cache cleared for this novel.');
   }, [novel]);
 
@@ -378,7 +342,6 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
               goBack={navigation.goBack}
               headerOpacity={headerOpacity}
               audiobookChapters={startAudiobookBatch}
-              openGlossaryEditor={openGlossaryEditor}
               clearAudiobookCache={clearAudiobookCache}
             />
           ) : (
@@ -459,13 +422,6 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                 chapters={chapters}
                 theme={theme}
                 downloadChapters={downloadChapters}
-              />
-              <CostPreviewModal
-                visible={pendingAudiobook !== null}
-                estimate={pendingAudiobook?.estimate ?? null}
-                chapterCount={pendingAudiobook?.chapters.length ?? 0}
-                onCancel={() => setPendingAudiobook(null)}
-                onConfirm={confirmAudiobookBatch}
               />
             </>
           ) : null}

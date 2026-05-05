@@ -1,5 +1,3 @@
-import { CharacterGlossary } from '../types';
-
 export const GLOSSARY_TOOL_NAME = 'emit_glossary';
 export const GLOSSARY_TOOL_DESCRIPTION =
   'Emit the character glossary extracted from the chapter sample.';
@@ -101,7 +99,7 @@ export const GLOSSARY_UPDATE_SYSTEM_PROMPT = `You are extending an existing char
 Use the same emit_glossary tool. Output ONLY the new characters — not the existing ones. Keep voice hints and personality 1-3 keywords each.`;
 
 export interface UpdateGlossaryArgs {
-  existing: CharacterGlossary;
+  existing: import('../types').CharacterGlossary;
   newSpeakers: string[];
   recentExcerpts: string[];
 }
@@ -117,7 +115,7 @@ export function buildGlossaryUpdateUserMessage(
     '',
     `New speakers seen recently: ${args.newSpeakers.join(', ')}`,
     '',
-    `Recent excerpts:`,
+    'Recent excerpts:',
     ...args.recentExcerpts.map((e, i) => `--- Excerpt ${i + 1} ---\n${e}`),
   ].join('\n');
 }

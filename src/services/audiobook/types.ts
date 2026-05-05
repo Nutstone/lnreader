@@ -1,45 +1,32 @@
 /**
  * Audiobook engine types.
  *
- * One LLM provider (Claude) + one optional fallback (Ollama).
- * One TTS engine: Kokoro v1.0 hosted in a hidden WebView.
- *
- * See docs/audiobook/DECISIONS.md.
+ * One LLM provider (Claude). One TTS engine (Kokoro v1.0 hosted in a
+ * hidden WebView).
  */
 
 // ── LLM ─────────────────────────────────────────────────────────
 
-export type LLMProvider = 'anthropic' | 'ollama';
-
-export type AnthropicModel =
-  | 'claude-sonnet-4-6'
-  | 'claude-opus-4-7'
-  | 'claude-haiku-4-5';
-
 export interface LLMConfig {
-  provider: LLMProvider;
-  /** Anthropic key, ignored when provider === 'ollama'. */
+  /** Anthropic API key. */
   apiKey?: string;
-  /** Ollama base URL, ignored for Anthropic. */
-  baseUrl?: string;
-  /** Override the default model for the provider. */
+  /** Override the default model. */
   model?: string;
-  /** Default true; disables Anthropic prompt-caching when false. */
-  enablePromptCaching?: boolean;
 }
 
 // ── TTS ─────────────────────────────────────────────────────────
 
+export type KokoroDtype = 'q4' | 'q4f16' | 'q8' | 'fp16' | 'fp32';
+
 export interface TTSConfig {
-  /**
-   * Multiplier applied on top of the per-segment speed. 0.5..2.0.
-   * User-controlled in the player.
-   */
+  /** Multiplier on top of per-segment speed. 0.5..2.0. */
   playbackSpeed: number;
   /** When true, applies post-render volume gain on whisper/shouting. */
   emotionShaping: boolean;
   /** Number of segments to pre-render ahead of playback. */
   lookaheadSegments: number;
+  /** Kokoro model dtype — quality/speed/size trade-off. */
+  dtype: KokoroDtype;
 }
 
 // ── Pipeline config ─────────────────────────────────────────────
@@ -47,38 +34,29 @@ export interface TTSConfig {
 export interface AudiobookConfig {
   llm: LLMConfig;
   tts: TTSConfig;
-  novelId: string;
+  novelId: number | string;
+  pluginId: string;
 }
 
 // ── Glossary ────────────────────────────────────────────────────
 
 export interface Character {
-  /** Display name. */
   name: string;
-  /** Other names referencing the same character. */
   aliases: string[];
   gender: 'male' | 'female' | 'neutral';
   /** Free-form personality keywords; matched against keyword scores. */
   personality: string[];
   /** Audio-descriptor keywords; bias terms for the matcher. */
   voiceHints: string[];
-  /** One-sentence summary, shown in glossary editor. */
+  /** One-sentence summary. */
   description: string;
-  /**
-   * Phonetic override for pronunciation. Empty = use `name` directly.
-   * Used at render time to substitute the spoken form of the name.
-   */
+  /** Optional phonetic override; substituted at render time. */
   pronunciation?: string;
-  /** Chapter index where the character was first seen. */
-  firstSeenChapter?: number;
-  /** True when the user has manually edited any field. */
-  userOverridden?: boolean;
 }
 
 export interface CharacterGlossary {
   novelId: string;
   narratorGender: 'male' | 'female' | 'neutral';
-  /** How the narrator should sound. */
   narratorVoiceHints: string[];
   characters: Character[];
   createdAt: string;
@@ -116,16 +94,8 @@ export interface AnnotatedSegment {
 
 export interface ChapterAnnotation {
   chapterId: number;
-  /** Stable hash of plugin-provided chapter path. */
-  chapterKey: string;
   segments: AnnotatedSegment[];
   createdAt: string;
-  /** Token usage for cost reporting. */
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-    cachedInputTokens: number;
-  };
 }
 
 // ── Voice Casting (Kokoro blending) ─────────────────────────────
@@ -176,8 +146,6 @@ export interface BlendedVoice {
   components: VoiceComponent[];
   /** Base playback speed; multiplied with emotion-derived speed at render. */
   speed: number;
-  /** Bumped each time the voice changes; audio cache keys off this. */
-  voiceVersion: number;
 }
 
 export interface VoiceMap {
@@ -196,13 +164,11 @@ export interface AudioSegmentRef {
   pauseBeforeMs: number;
   speaker: string;
   text: string;
-  voiceVersion: number;
   emotion: Emotion;
   intensity: EmotionIntensity;
 }
 
 export interface ChapterAudioManifest {
-  chapterKey: string;
   chapterId: number;
   totalDurationMs: number;
   totalSegments: number;
@@ -223,6 +189,22 @@ export interface AudioSegment {
   text: string;
   emotion: Emotion;
   intensity: EmotionIntensity;
+}
+
+// ── Pipeline progress ───────────────────────────────────────────
+
+export type PipelineStage =
+  | 'glossary'
+  | 'annotation'
+  | 'done';
+
+export interface PipelineProgress {
+  stage: PipelineStage;
+  message: string;
+  /** 0..1 */
+  progress: number;
+  chapterIndex?: number;
+  chapterTotal?: number;
 }
 
 // ── Player ──────────────────────────────────────────────────────
@@ -247,7 +229,6 @@ export interface PlayerState {
   novelName?: string;
   novelCover?: string;
   chapterId?: number;
-  chapterKey?: string;
   chapterName?: string;
   totalSegments: number;
   segmentIndex: number;
@@ -255,8 +236,6 @@ export interface PlayerState {
   totalPositionMs: number;
   totalDurationMs: number;
   speed: number;
-  /** Epoch ms; undefined = no sleep timer. */
-  sleepTimerEndsAt?: number;
   currentSpeaker?: string;
   currentText?: string;
   error?: PlayerError;
@@ -271,78 +250,3 @@ export const INITIAL_PLAYER_STATE: PlayerState = {
   totalDurationMs: 0,
   speed: 1.0,
 };
-
-// ── Last-played pointer (per novel) ─────────────────────────────
-
-export interface LastPlayed {
-  novelId: string;
-  chapterId: number;
-  chapterKey: string;
-  segmentIndex: number;
-  positionMs: number;
-  updatedAt: string;
-}
-
-// ── Pipeline progress ───────────────────────────────────────────
-
-export type PipelineStage =
-  | 'glossary'
-  | 'voice-mapping'
-  | 'annotation'
-  | 'rendering'
-  | 'caching'
-  | 'done';
-
-export interface PipelineProgress {
-  stage: PipelineStage;
-  message: string;
-  /** 0..1 */
-  progress: number;
-  chapterIndex?: number;
-  chapterTotal?: number;
-  tokensIn?: number;
-  tokensOut?: number;
-  tokensCached?: number;
-}
-
-// ── Cost estimation ─────────────────────────────────────────────
-
-export interface CostEstimate {
-  provider: LLMProvider;
-  model: string;
-  totalTokensIn: number;
-  totalTokensOut: number;
-  costUSDWithoutCache: number;
-  costUSDWithCache: number;
-  isFree: boolean;
-  notes?: string;
-}
-
-// ── LLM internal request ────────────────────────────────────────
-
-export interface LLMRequest {
-  /** Cacheable system prompt (Anthropic). */
-  systemPrompt: string;
-  /** Per-call user message. */
-  userMessage: string;
-  /** Optional structured-output schema (Anthropic tool_choice). */
-  toolName?: string;
-  toolDescription?: string;
-  toolInputSchema?: Record<string, unknown>;
-}
-
-// ── Diagnostics ─────────────────────────────────────────────────
-
-export interface DiagnosticEvent {
-  timestamp: number;
-  provider: LLMProvider;
-  model: string;
-  endpoint: string;
-  latencyMs: number;
-  inputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
-  costUSD: number;
-  status: 'ok' | 'retry' | 'error';
-  errorMessage?: string;
-}

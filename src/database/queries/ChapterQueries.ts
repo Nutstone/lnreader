@@ -83,6 +83,29 @@ export const markChapterRead = async (chapterId: number): Promise<void> => {
   });
 };
 
+export const setChapterAudiobookAvailable = async (
+  chapterId: number,
+  available: boolean,
+): Promise<void> => {
+  await dbManager.write(async tx => {
+    tx.update(chapterSchema)
+      .set({ isAvailableAsAudiobook: available })
+      .where(eq(chapterSchema.id, chapterId))
+      .run();
+  });
+};
+
+export const clearAudiobookAvailableForNovel = async (
+  novelId: number,
+): Promise<void> => {
+  await dbManager.write(async tx => {
+    tx.update(chapterSchema)
+      .set({ isAvailableAsAudiobook: false })
+      .where(eq(chapterSchema.novelId, novelId))
+      .run();
+  });
+};
+
 export const markChaptersRead = async (chapterIds: number[]): Promise<void> => {
   if (!chapterIds.length) {
     return;

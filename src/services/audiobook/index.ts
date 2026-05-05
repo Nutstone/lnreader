@@ -13,11 +13,9 @@ export {
 export { LLMAnnotator } from './llmAnnotator';
 export { VoiceCaster, blendString, matchArchetype } from './voiceCaster';
 export { AudioCache } from './audioCache';
-export { sanitiseChapter, chunkAtSceneBreaks } from './chapterSanitiser';
-export { chapterKeyFor, hashChapterPath } from './chapterPath';
-export { VOICE_CATALOG, voicesForArchetype, voicesForGender, findVoice } from './voiceCatalog';
+export { sanitiseChapter } from './chapterSanitiser';
+export { VOICE_CATALOG, voicesForArchetype, findVoice } from './voiceCatalog';
 export type { VoiceCatalogEntry } from './voiceCatalog';
-export { KEYWORD_SCORES, normaliseKeyword } from './voiceArchetypes';
 export {
   KokoroWebViewRenderer,
   setKokoroHost,
@@ -34,14 +32,6 @@ export type {
   KokoroDtype,
   RendererCapabilities,
 } from './renderers/types';
-export {
-  PRICING_TABLE,
-  findPricing,
-  recommendedModelFor,
-  listModelsFor,
-  estimateTokens,
-} from './pricing';
-export type { PricingEntry } from './pricing';
 export {
   getEmotionModulation,
   pauseTypeToMs,
@@ -66,13 +56,9 @@ export type {
   AudioSegment,
   AudioSegmentRef,
   ChapterAudioManifest,
-  PipelineProgress,
-  PipelineStage,
-  CostEstimate,
   PlayerState,
   PlayerStatus,
   PlayerError,
-  LastPlayed,
   ReservedSpeaker,
   ArchetypeScores,
 } from './types';

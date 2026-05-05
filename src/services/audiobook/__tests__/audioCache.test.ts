@@ -3,7 +3,7 @@
  */
 
 import { AudioCache } from '../audioCache';
-import { AudioSegmentRef, ChapterAnnotation, VoiceMap } from '../types';
+import { AudioSegmentRef, ChapterAnnotation } from '../types';
 
 const mockFs = new Map<string, string>();
 const mockDirs = new Set<string>();
@@ -13,7 +13,6 @@ jest.mock('@specs/NativeFile', () => ({
   default: {
     exists: (p: string) => {
       if (mockFs.has(p) || mockDirs.has(p)) return true;
-      // A path is also "exists" if it's a parent of any mkdir'd dir or fs entry.
       const prefix = p + '/';
       for (const k of mockDirs) if (k.startsWith(prefix)) return true;
       for (const k of mockFs.keys()) if (k.startsWith(prefix)) return true;
@@ -33,7 +32,6 @@ jest.mock('@specs/NativeFile', () => ({
       for (const k of [...mockDirs]) if (k.startsWith(p + '/')) mockDirs.delete(k);
     },
     mkdir: (p: string) => {
-      // Mimic real NativeFile.mkdir: create parents.
       const parts = p.split('/').filter(Boolean);
       for (let i = 1; i <= parts.length; i++) {
         mockDirs.add('/' + parts.slice(0, i).join('/'));
@@ -68,16 +66,15 @@ beforeEach(() => {
   mockDirs.clear();
 });
 
-const keys = { novelId: 'n1', chapterKey: 'k1', chapterId: 1 };
+const keys = { novelId: 'n1', chapterId: 1 };
 
-const segRef = (i: number, voiceVersion = 1, text = 'Hello'): AudioSegmentRef => ({
+const segRef = (i: number, text = 'Hello'): AudioSegmentRef => ({
   index: i,
   file: `seg_${i.toString().padStart(4, '0')}.wav`,
   durationMs: 1000,
   pauseBeforeMs: 200,
   speaker: 'Rimuru',
   text,
-  voiceVersion,
   emotion: 'neutral',
   intensity: 2,
 });
@@ -96,7 +93,7 @@ describe('AudioCache', () => {
     const c = new AudioCache();
     c.upsertSegment(keys, segRef(0));
     c.upsertSegment(keys, segRef(1));
-    c.upsertSegment(keys, segRef(0, 1, 'overwritten'));
+    c.upsertSegment(keys, segRef(0, 'overwritten'));
     const m = c.readManifest(keys)!;
     expect(m.segments).toHaveLength(2);
     expect(m.segments.find(s => s.index === 0)!.text).toBe('overwritten');
@@ -109,7 +106,7 @@ describe('AudioCache', () => {
 
   it('readManifest deletes corrupt manifest', () => {
     const c = new AudioCache();
-    const dir = '/data/test/Audiobook/n1/audio/k1';
+    const dir = '/data/cache/Audiobook/n1/1';
     mockDirs.add(dir);
     mockFs.set(`${dir}/manifest.json`, 'not valid json');
     expect(c.readManifest(keys)).toBeNull();
@@ -120,7 +117,6 @@ describe('AudioCache', () => {
     const c = new AudioCache();
     const annotation: ChapterAnnotation = {
       chapterId: 1,
-      chapterKey: 'k1',
       segments: [
         {
           text: 'A',
@@ -133,24 +129,17 @@ describe('AudioCache', () => {
       ],
       createdAt: '',
     };
-    const voiceMap: VoiceMap = {
-      novelId: 'n1',
-      mappings: { X: { label: 'X', components: [], speed: 1, voiceVersion: 1 } },
-      updatedAt: '',
-    };
-    const r = c.computeInvalidation(keys, annotation, voiceMap, null);
+    const r = c.computeInvalidation(keys, annotation, null);
     expect(r.reusableIndexes.size).toBe(0);
-    expect(r.result.invalidatedSegments).toBe(1);
   });
 
   it('computeInvalidation reuses matching segments', () => {
     const c = new AudioCache();
-    const dir = '/data/test/Audiobook/n1/audio/k1';
-    c.upsertSegment(keys, segRef(0, 1, 'Hello'));
-    mockFs.set(`${dir}/seg_0000.wav`, 'fake-wav-data'); // mock file presence
+    const dir = '/data/cache/Audiobook/n1/1';
+    c.upsertSegment(keys, segRef(0, 'Hello'));
+    mockFs.set(`${dir}/seg_0000.wav`, 'fake-wav-data');
     const annotation: ChapterAnnotation = {
       chapterId: 1,
-      chapterKey: 'k1',
       segments: [
         {
           text: 'Hello',
@@ -163,28 +152,21 @@ describe('AudioCache', () => {
       ],
       createdAt: '',
     };
-    const voiceMap: VoiceMap = {
-      novelId: 'n1',
-      mappings: { Rimuru: { label: 'R', components: [], speed: 1, voiceVersion: 1 } },
-      updatedAt: '',
-    };
     const m = c.readManifest(keys);
-    const r = c.computeInvalidation(keys, annotation, voiceMap, m);
+    const r = c.computeInvalidation(keys, annotation, m);
     expect(r.reusableIndexes.has(0)).toBe(true);
-    expect(r.result.reusableSegments).toBe(1);
   });
 
   it('computeInvalidation invalidates on text change', () => {
     const c = new AudioCache();
-    const dir = '/data/test/Audiobook/n1/audio/k1';
-    c.upsertSegment(keys, segRef(0, 1, 'Old text'));
+    const dir = '/data/cache/Audiobook/n1/1';
+    c.upsertSegment(keys, segRef(0, 'Old text'));
     mockFs.set(`${dir}/seg_0000.wav`, 'data');
     const annotation: ChapterAnnotation = {
       chapterId: 1,
-      chapterKey: 'k1',
       segments: [
         {
-          text: 'New text', // changed
+          text: 'New text',
           speaker: 'Rimuru',
           emotion: 'neutral',
           intensity: 2,
@@ -194,53 +176,16 @@ describe('AudioCache', () => {
       ],
       createdAt: '',
     };
-    const voiceMap: VoiceMap = {
-      novelId: 'n1',
-      mappings: { Rimuru: { label: 'R', components: [], speed: 1, voiceVersion: 1 } },
-      updatedAt: '',
-    };
-    const r = c.computeInvalidation(keys, annotation, voiceMap, c.readManifest(keys));
-    expect(r.reusableIndexes.has(0)).toBe(false);
-  });
-
-  it('computeInvalidation invalidates on voiceVersion bump', () => {
-    const c = new AudioCache();
-    const dir = '/data/test/Audiobook/n1/audio/k1';
-    c.upsertSegment(keys, segRef(0, 1));
-    mockFs.set(`${dir}/seg_0000.wav`, 'data');
-    const annotation: ChapterAnnotation = {
-      chapterId: 1,
-      chapterKey: 'k1',
-      segments: [
-        {
-          text: 'Hello',
-          speaker: 'Rimuru',
-          emotion: 'neutral',
-          intensity: 2,
-          isDialogue: false,
-          pauseBefore: 'short',
-        },
-      ],
-      createdAt: '',
-    };
-    const voiceMap: VoiceMap = {
-      novelId: 'n1',
-      mappings: {
-        Rimuru: { label: 'R', components: [], speed: 1, voiceVersion: 2 },
-      },
-      updatedAt: '',
-    };
-    const r = c.computeInvalidation(keys, annotation, voiceMap, c.readManifest(keys));
+    const r = c.computeInvalidation(keys, annotation, c.readManifest(keys));
     expect(r.reusableIndexes.has(0)).toBe(false);
   });
 
   it('computeInvalidation invalidates when audio file missing', () => {
     const c = new AudioCache();
-    c.upsertSegment(keys, segRef(0, 1));
+    c.upsertSegment(keys, segRef(0));
     // No fake WAV — file missing.
     const annotation: ChapterAnnotation = {
       chapterId: 1,
-      chapterKey: 'k1',
       segments: [
         {
           text: 'Hello',
@@ -253,34 +198,27 @@ describe('AudioCache', () => {
       ],
       createdAt: '',
     };
-    const voiceMap: VoiceMap = {
-      novelId: 'n1',
-      mappings: { Rimuru: { label: 'R', components: [], speed: 1, voiceVersion: 1 } },
-      updatedAt: '',
-    };
-    const r = c.computeInvalidation(keys, annotation, voiceMap, c.readManifest(keys));
+    const r = c.computeInvalidation(keys, annotation, c.readManifest(keys));
     expect(r.reusableIndexes.has(0)).toBe(false);
   });
 
-  it('evictNovel removes everything for one novel', () => {
+  it('clearAll wipes rendered audio for every novel', () => {
     const c = new AudioCache();
-    const dir = '/data/test/Audiobook/n1/audio/k1';
     c.upsertSegment(keys, segRef(0));
-    mockFs.set(`${dir}/seg_0000.wav`, 'data');
-    expect(mockFs.size).toBeGreaterThan(0);
-    c.evictNovel('n1');
-    // Manifest + WAV gone for n1.
+    c.upsertSegment({ novelId: 'n2', chapterId: 2 }, segRef(0));
+    c.clearAll();
     expect(c.readManifest(keys)).toBeNull();
-    expect(mockFs.has(`${dir}/seg_0000.wav`)).toBe(false);
+    expect(c.readManifest({ novelId: 'n2', chapterId: 2 })).toBeNull();
   });
 
-  it('evictAll wipes the audiobook root', () => {
+  it('clearForNovel wipes only one novel\'s rendered audio', () => {
     const c = new AudioCache();
+    const n2keys = { novelId: 'n2', chapterId: 2 };
     c.upsertSegment(keys, segRef(0));
-    c.upsertSegment({ novelId: 'n2', chapterKey: 'k2', chapterId: 2 }, segRef(0));
-    c.evictAll();
+    c.upsertSegment(n2keys, segRef(0));
+    c.clearForNovel('n1');
     expect(c.readManifest(keys)).toBeNull();
-    expect(c.readManifest({ novelId: 'n2', chapterKey: 'k2', chapterId: 2 })).toBeNull();
+    expect(c.readManifest(n2keys)).not.toBeNull();
   });
 
   it('upsert keeps total duration in sync', () => {

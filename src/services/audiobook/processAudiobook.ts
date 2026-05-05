@@ -1,13 +1,13 @@
 /**
  * Background-task entry for audiobook annotation.
  *
- * Used by `AUDIOBOOK_PIPELINE` in `ServiceManager`. Annotates a batch
- * of chapters; never renders audio (rendering happens at playback time
- * inside the WebView host).
+ * Annotates a batch of chapters; never renders audio (rendering happens
+ * at playback time inside the WebView host).
  */
 
 import { getPlugin } from '@plugins/pluginManager';
 import { BackgroundTaskMetadata } from '@services/ServiceManager';
+import { setChapterAudiobookAvailable } from '@database/queries/ChapterQueries';
 import { AudiobookPipeline } from './pipeline';
 import { AudiobookConfig } from './types';
 import { getMMKVObject } from '@utils/mmkv/mmkv';
@@ -36,25 +36,24 @@ export const processAudiobook = async (
     }));
 
     const settings = getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS);
-    if (!settings || (!settings.apiKey && settings.llmProvider === 'anthropic')) {
+    if (!settings?.apiKey) {
       throw new Error(
         'Audiobook is not configured. Add your Claude API key in Audiobook Settings.',
       );
     }
 
     const config: AudiobookConfig = {
-      novelId: String(data.novelId),
+      novelId: data.novelId,
+      pluginId: data.pluginId,
       llm: {
-        provider: settings.llmProvider,
         apiKey: settings.apiKey,
-        baseUrl: settings.baseUrl,
         model: settings.model,
-        enablePromptCaching: settings.enablePromptCaching,
       },
       tts: {
         playbackSpeed: 1.0,
         emotionShaping: settings.emotionShaping,
         lookaheadSegments: settings.lookaheadSegments,
+        dtype: settings.ttsDtype,
       },
     };
 
@@ -65,7 +64,7 @@ export const processAudiobook = async (
     }
 
     // Fetch chapter texts.
-    const chapters: { id: number; path: string; rawText: string; name?: string }[] = [];
+    const chapters: { id: number; path: string; rawText: string }[] = [];
     for (let i = 0; i < data.chapterIds.length; i++) {
       setMeta(meta => ({
         ...meta,
@@ -80,13 +79,19 @@ export const processAudiobook = async (
       });
     }
 
-    await pipeline.processChapters(chapters, progress => {
-      setMeta(meta => ({
-        ...meta,
-        progressText: progress.message,
-        progress: 0.1 + progress.progress * 0.9,
-      }));
-    });
+    await pipeline.processChapters(
+      chapters,
+      progress => {
+        setMeta(meta => ({
+          ...meta,
+          progressText: progress.message,
+          progress: 0.1 + progress.progress * 0.9,
+        }));
+      },
+      async chapterId => {
+        await setChapterAudiobookAvailable(chapterId, true);
+      },
+    );
 
     setMeta(meta => ({
       ...meta,

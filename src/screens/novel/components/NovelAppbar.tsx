@@ -85,7 +85,6 @@ const NovelAppbar = ({
   showJumpToChapterModal,
   headerOpacity,
   audiobookChapters,
-  openGlossaryEditor,
   clearAudiobookCache,
 }: {
   novel: NovelInfo | undefined;
@@ -101,7 +100,6 @@ const NovelAppbar = ({
   showJumpToChapterModal: (arg: boolean) => void;
   headerOpacity: SharedValue<number>;
   audiobookChapters?: (amount: number | 'unread' | 'all') => void;
-  openGlossaryEditor?: () => void;
   clearAudiobookCache?: () => void;
 }) => {
   const headerOpacityStyle = useAnimatedStyle(() => {
@@ -214,14 +212,6 @@ const NovelAppbar = ({
         label: getString('common.all'),
         onPress: () => audiobookChapters('all'),
       },
-      ...(openGlossaryEditor
-        ? [
-            {
-              label: getString('novelScreen.audiobook.editCast'),
-              onPress: openGlossaryEditor,
-            },
-          ]
-        : []),
       ...(clearAudiobookCache
         ? [
             {
@@ -231,7 +221,7 @@ const NovelAppbar = ({
           ]
         : []),
     ];
-  }, [audiobookChapters, openGlossaryEditor, clearAudiobookCache]);
+  }, [audiobookChapters, clearAudiobookCache]);
 
   const openDlMenu = useCallback(() => showDownloadMenu(true), []);
   const closeDlMenu = useCallback(() => showDownloadMenu(false), []);

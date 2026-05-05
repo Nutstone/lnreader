@@ -115,9 +115,6 @@ export interface ChapterReaderSettings {
     autoPageAdvance?: boolean;
     scrollToTop?: boolean;
   };
-  audiobook?: {
-    autoPageAdvance?: boolean;
-  };
   epubLocation: string;
   epubUseAppTheme: boolean;
   epubUseCustomCSS: boolean;
@@ -209,9 +206,6 @@ export const initialChapterReaderSettings: ChapterReaderSettings = {
     autoPageAdvance: false,
     scrollToTop: true,
   },
-  audiobook: {
-    autoPageAdvance: false,
-  },
   epubLocation: '',
   epubUseAppTheme: false,
   epubUseCustomCSS: false,
@@ -285,7 +279,7 @@ export const useChapterReaderSettings = () => {
   const [storedSettings = initialChapterReaderSettings, setSettings] =
     useMMKVObject<ChapterReaderSettings>(CHAPTER_READER_SETTINGS);
 
-  // Ensure TTS and audiobook settings have proper defaults (migration for existing users)
+  // Ensure TTS settings have proper defaults (migration for existing users)
   const chapterReaderSettings = {
     ...storedSettings,
     tts: {
@@ -296,11 +290,6 @@ export const useChapterReaderSettings = () => {
       scrollToTop: storedSettings.tts?.scrollToTop ?? true,
       rate: storedSettings.tts?.rate ?? 1,
       pitch: storedSettings.tts?.pitch ?? 1,
-    },
-    audiobook: {
-      ...initialChapterReaderSettings.audiobook,
-      ...storedSettings.audiobook,
-      autoPageAdvance: storedSettings.audiobook?.autoPageAdvance ?? false,
     },
   };
 

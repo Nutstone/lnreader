@@ -34,6 +34,7 @@ export interface ChapterInfo {
   bookmark: boolean | null;
   unread: boolean | null;
   isDownloaded: boolean | null;
+  isAvailableAsAudiobook: boolean | null;
   updatedTime: string | null;
   chapterNumber?: number | null;
   page: string | null;

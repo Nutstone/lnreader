@@ -42,6 +42,7 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
   onSelectPress,
   onSelectLongPress,
 }) => {
+  const hasAudiobook = !!chapter.isAvailableAsAudiobook;
   const { id, name, unread, releaseTime, bookmark, chapterNumber, progress } =
     chapter;
 
@@ -141,6 +142,14 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
                       num: chapterNumber,
                     })}
               </Text>
+              {hasAudiobook ? (
+                <MaterialCommunityIcons
+                  name="headphones"
+                  color={theme.primary}
+                  size={14}
+                  style={styles.audiobookIcon}
+                />
+              ) : null}
             </View>
             <View style={styles.metaRow}>
               {releaseTime && !isUpdateCard ? (
@@ -222,6 +231,9 @@ const styles = StyleSheet.create({
   },
   unreadIcon: {
     marginEnd: 4,
+  },
+  audiobookIcon: {
+    marginStart: 6,
   },
   updateCardName: {
     fontSize: 14,

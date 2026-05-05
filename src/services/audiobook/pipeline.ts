@@ -1,45 +1,49 @@
 /**
- * Audiobook pipeline orchestrator.
+ * Audiobook pipeline.
  *
- * Per novel, owns the glossary, voice map and per-chapter annotations.
- * Glossary discovery: the LLM looks at a 3-chapter sample to seed the
- * cast; new speakers found mid-novel are added incrementally.
+ * Per novel, owns the glossary, voice map, and per-chapter annotations.
+ * Glossary is built lazily from a 3-chapter sample on first play; new
+ * speakers found mid-novel are added incrementally via extendGlossary.
  *
- * Layout under AUDIOBOOK_STORAGE/<novelId>/:
- *   glossary.json
- *   voice-map.json
- *   annotations/<chapterKey>.json
- *   audio/<chapterKey>/manifest.json + seg_*.wav
+ * Storage layout (co-located with downloaded chapters under
+ * NOVEL_STORAGE/<pluginId>/<novelId>/):
+ *   audiobook.glossary.json
+ *   audiobook.voice-map.json
+ *   <chapterId>/audiobook.json          ← per-chapter annotation
+ *
+ * Rendered audio lives separately in the OS cache dir (see AudioCache).
  */
 
 import NativeFile from '@specs/NativeFile';
-import { AUDIOBOOK_STORAGE } from '@utils/Storages';
+import {
+  audiobookAnnotationPath,
+  audiobookAudioDir,
+  audiobookGlossaryPath,
+  audiobookVoiceMapPath,
+  chapterDir,
+  novelDir,
+} from '@utils/Storages';
 import {
   AnnotatedSegment,
   AudioSegment,
   AudiobookConfig,
   CharacterGlossary,
   ChapterAnnotation,
-  CostEstimate,
   PipelineProgress,
   RESERVED_SPEAKERS,
   VoiceMap,
 } from './types';
 import { LLMAnnotator } from './llmAnnotator';
 import { VoiceCaster } from './voiceCaster';
-import { chapterKeyFor } from './chapterPath';
 import { sanitiseChapter } from './chapterSanitiser';
 import { AudioCache } from './audioCache';
-import { estimateTokens, findPricing, recommendedModelFor } from './pricing';
 import { ITTSRenderer, StreamOptions, effectiveSpeed } from './renderers/types';
 import { getEmotionModulation } from './emotionModulation';
-import { ANNOTATION_SYSTEM_PROMPT } from './prompts/chapterAnnotator';
-import { GLOSSARY_SYSTEM_PROMPT } from './prompts/glossaryBuilder';
 
 export interface ChapterRef {
-  /** App's chapter id (for last-played pointer & UI). */
+  /** App's chapter id. */
   id: number;
-  /** Plugin-stable URL/identifier. */
+  /** Plugin-stable URL (used for plugin.parseChapter). */
   path: string;
   /** Optional display name. */
   name?: string;
@@ -49,13 +53,7 @@ export interface ChapterWithText extends ChapterRef {
   rawText: string;
 }
 
-export interface PipelineOnProgress {
-  (p: PipelineProgress): void;
-}
-
 export class AudiobookPipeline {
-  private readonly novelDir: string;
-  private readonly annotationsDir: string;
   private readonly annotator: LLMAnnotator;
   private readonly caster: VoiceCaster;
   private readonly cache: AudioCache;
@@ -70,25 +68,43 @@ export class AudiobookPipeline {
     },
   ) {
     this.config = config;
-    this.novelDir = `${AUDIOBOOK_STORAGE}/${config.novelId}`;
-    this.annotationsDir = `${this.novelDir}/annotations`;
-    this.annotator =
-      deps?.annotator ?? new LLMAnnotator(config.llm);
+    this.annotator = deps?.annotator ?? new LLMAnnotator(config.llm);
     this.caster = deps?.caster ?? new VoiceCaster();
     this.cache = deps?.cache ?? new AudioCache();
   }
 
-  // ── Public: high-level operations ───────────────────────────────
+  /**
+   * Annotate a single chapter on demand. Builds the glossary if it
+   * doesn't exist yet; if the chapter introduces enough new speakers,
+   * extends the glossary so they get distinct voices on next play.
+   */
+  async annotateOne(chapter: ChapterWithText): Promise<ChapterAnnotation> {
+    const cached = await this.getAnnotation(chapter.id);
+    if (cached) return cached;
+
+    const glossary = await this.getOrBuildGlossary(chapter);
+    const sanitised = sanitiseChapter(chapter.rawText);
+    const annotation = await this.annotator.annotateChapter(
+      chapter.id,
+      sanitised,
+      glossary,
+    );
+    await this.writeAnnotation(annotation);
+    await this.discoverNewSpeakers(annotation, glossary);
+    return annotation;
+  }
 
   /**
-   * Process a batch of chapters: ensure glossary, voice map,
-   * annotation for each. Re-runs are idempotent due to caching.
+   * Annotate a batch of chapters. Re-runs are idempotent due to caching;
+   * the glossary grows as new speakers are seen. Caller is responsible
+   * for setting `chapter.isAvailableAsAudiobook = true` in the DB after
+   * each successful annotation (see `processAudiobook`).
    */
   async processChapters(
     chapters: ChapterWithText[],
-    onProgress?: PipelineOnProgress,
+    onProgress?: (p: PipelineProgress) => void,
+    onChapterAnnotated?: (chapterId: number) => void | Promise<void>,
   ): Promise<void> {
-    this.ensureDirs();
     if (chapters.length === 0) return;
 
     onProgress?.({
@@ -100,8 +116,13 @@ export class AudiobookPipeline {
     let glossary = await this.getGlossary();
     if (!glossary) {
       const sample = chapters.slice(0, 3).map(c => sanitiseChapter(c.rawText));
-      glossary = await this.annotator.buildGlossary(this.config.novelId, sample);
-      await this.writeJSON(`${this.novelDir}/glossary.json`, glossary);
+      glossary = await this.annotator.buildGlossary(
+        String(this.config.novelId),
+        sample,
+      );
+      await this.writeGlossary(glossary);
+      const voiceMap = this.caster.buildVoiceMap(glossary);
+      await this.writeVoiceMap(voiceMap);
     }
 
     onProgress?.({
@@ -110,116 +131,36 @@ export class AudiobookPipeline {
       progress: 0.15,
     });
 
-    onProgress?.({
-      stage: 'voice-mapping',
-      message: 'Casting voices…',
-      progress: 0.18,
-    });
-
-    let voiceMap = await this.getVoiceMap();
-    if (!voiceMap) {
-      voiceMap = this.caster.buildVoiceMap(glossary);
-      await this.writeJSON(`${this.novelDir}/voice-map.json`, voiceMap);
-    }
-
-    onProgress?.({
-      stage: 'voice-mapping',
-      message: `Cast ${Object.keys(voiceMap.mappings).length} voices.`,
-      progress: 0.22,
-    });
-
-    // Annotate each chapter; discover new speakers as we go.
-    let cumulativeIn = 0;
-    let cumulativeOut = 0;
-    let cumulativeCached = 0;
     for (let i = 0; i < chapters.length; i++) {
       const chapter = chapters[i];
-      const key = chapterKeyFor(chapter.path);
-      const cached = await this.getAnnotation(key);
-      if (cached) continue;
+      let annotation = await this.getAnnotation(chapter.id);
+      if (!annotation) {
+        onProgress?.({
+          stage: 'annotation',
+          message: `Annotating chapter ${i + 1}/${chapters.length}…`,
+          progress: 0.15 + (0.85 * i) / chapters.length,
+          chapterIndex: i,
+          chapterTotal: chapters.length,
+        });
 
-      onProgress?.({
-        stage: 'annotation',
-        message: `Annotating chapter ${i + 1}/${chapters.length}…`,
-        progress: 0.25 + (0.7 * i) / chapters.length,
-        chapterIndex: i,
-        chapterTotal: chapters.length,
-        tokensIn: cumulativeIn,
-        tokensOut: cumulativeOut,
-        tokensCached: cumulativeCached,
-      });
-
-      const sanitised = sanitiseChapter(chapter.rawText);
-      const annotation = await this.annotator.annotateChapter(
-        chapter.id,
-        chapter.path,
-        sanitised,
-        glossary,
-      );
-      await this.writeAnnotation(annotation);
-      cumulativeIn += annotation.usage?.inputTokens ?? 0;
-      cumulativeOut += annotation.usage?.outputTokens ?? 0;
-      cumulativeCached += annotation.usage?.cachedInputTokens ?? 0;
-
-      // Glossary discovery: if many unknown speakers accumulate, extend.
-      const newSpeakers = collectUnknownSpeakers(annotation.segments, glossary);
-      if (newSpeakers.length >= 3) {
-        const excerpts = annotation.segments
-          .filter(s => newSpeakers.includes(s.speaker))
-          .slice(0, 6)
-          .map(s => s.text);
-        try {
-          const extras = await this.annotator.extendGlossary(
-            glossary,
-            newSpeakers,
-            excerpts,
-          );
-          if (extras.length > 0) {
-            glossary = {
-              ...glossary,
-              characters: [...glossary.characters, ...extras],
-              updatedAt: new Date().toISOString(),
-            };
-            await this.writeJSON(`${this.novelDir}/glossary.json`, glossary);
-            voiceMap = this.caster.extendVoiceMap(voiceMap, extras);
-            await this.writeJSON(`${this.novelDir}/voice-map.json`, voiceMap);
-          }
-        } catch {
-          // best-effort; new speakers fall back to narrator voice
-        }
+        const sanitised = sanitiseChapter(chapter.rawText);
+        annotation = await this.annotator.annotateChapter(
+          chapter.id,
+          sanitised,
+          glossary,
+        );
+        await this.writeAnnotation(annotation);
+        const updated = await this.discoverNewSpeakers(annotation, glossary);
+        if (updated) glossary = updated;
       }
+      await onChapterAnnotated?.(chapter.id);
     }
 
     onProgress?.({
       stage: 'done',
       message: `All ${chapters.length} chapters annotated.`,
       progress: 1,
-      tokensIn: cumulativeIn,
-      tokensOut: cumulativeOut,
-      tokensCached: cumulativeCached,
     });
-  }
-
-  /**
-   * Annotate a single chapter on demand (used by the player when the
-   * user taps "Listen" on a chapter that's not been processed yet).
-   */
-  async annotateOne(chapter: ChapterWithText): Promise<ChapterAnnotation> {
-    this.ensureDirs();
-    const key = chapterKeyFor(chapter.path);
-    const cached = await this.getAnnotation(key);
-    if (cached) return cached;
-
-    const glossary = await this.getOrBuildGlossary([chapter]);
-    const sanitised = sanitiseChapter(chapter.rawText);
-    const annotation = await this.annotator.annotateChapter(
-      chapter.id,
-      chapter.path,
-      sanitised,
-      glossary,
-    );
-    await this.writeAnnotation(annotation);
-    return annotation;
   }
 
   /**
@@ -231,7 +172,7 @@ export class AudiobookPipeline {
     renderer: ITTSRenderer,
     streamOptions: Omit<StreamOptions, 'outputDir' | 'pronunciationMap'>,
   ): AsyncGenerator<AudioSegment> {
-    const annotation = await this.getAnnotationByPath(chapter.path);
+    const annotation = await this.getAnnotation(chapter.id);
     if (!annotation) {
       throw new Error('Annotate the chapter before requesting audio.');
     }
@@ -249,23 +190,18 @@ export class AudiobookPipeline {
 
     const keys = {
       novelId: this.config.novelId,
-      chapterKey: annotation.chapterKey,
       chapterId: chapter.id,
     };
     this.cache.ensureChapterDir(keys);
-    const outputDir = `${this.novelDir}/audio/${annotation.chapterKey}`;
+    const outputDir = audiobookAudioDir(this.config.novelId, chapter.id);
 
     const manifest = this.cache.readManifest(keys);
     const { reusableIndexes } = this.cache.computeInvalidation(
       keys,
       annotation,
-      voiceMap,
       manifest,
     );
 
-    // Build a per-index in-flight map. For reusable indexes we resolve
-    // immediately. For non-reusable we spawn a render promise. We pre-
-    // spawn `lookahead` ahead of the cursor so the renderer is busy.
     const renders = new Map<number, Promise<AudioSegment>>();
 
     const buildRender = (idx: number): Promise<AudioSegment> => {
@@ -300,7 +236,7 @@ export class AudiobookPipeline {
       );
       return renderer
         .renderSegment({
-          id: `seg_${annotation.chapterKey}_${idx}`,
+          id: `seg_${chapter.id}_${idx}`,
           text,
           voice,
           speed,
@@ -316,7 +252,6 @@ export class AudiobookPipeline {
               pauseBeforeMs: pauseMs,
               speaker: seg.speaker,
               text: seg.text,
-              voiceVersion: voice.voiceVersion,
               emotion: seg.emotion,
               intensity: seg.intensity,
             },
@@ -337,16 +272,13 @@ export class AudiobookPipeline {
 
     const total = annotation.segments.length;
     const lookahead = Math.max(1, streamOptions.lookahead);
-    // Prime lookahead.
     for (let k = 0; k < Math.min(lookahead, total); k++) {
       renders.set(k, buildRender(k));
     }
-
     for (let i = 0; i < total; i++) {
       const promise = renders.get(i)!;
       const audioSeg = await promise;
       renders.delete(i);
-      // Spawn the next one to keep the pipeline busy.
       const next = i + lookahead;
       if (next < total && !renders.has(next)) {
         renders.set(next, buildRender(next));
@@ -355,153 +287,158 @@ export class AudiobookPipeline {
     }
   }
 
-  // ── Cost estimation ─────────────────────────────────────────────
-
-  /**
-   * Estimate cost for a batch of chapters. Returns one of:
-   *   - { isFree: true, ... } for Ollama
-   *   - { ... } with USD costs for Anthropic
-   */
-  async estimateCost(chapters: ChapterWithText[]): Promise<CostEstimate> {
-    const provider = this.config.llm.provider;
-    const model =
-      this.config.llm.model ?? recommendedModelFor(provider).model;
-    const pricing = findPricing(provider, model);
-    const SYSTEM_TOKENS_GLOSSARY = estimateTokens(GLOSSARY_SYSTEM_PROMPT);
-    const SYSTEM_TOKENS_ANNOT = estimateTokens(ANNOTATION_SYSTEM_PROMPT);
-    const OUTPUT_TOKENS_PER_CHAPTER = 800; // typical
-    const sample = chapters.slice(0, 3);
-    const sampleTokens = sample.reduce(
-      (s, c) => s + estimateTokens(sanitiseChapter(c.rawText).slice(0, 8000)),
-      0,
-    );
-    const perChapterIn = chapters.reduce(
-      (s, c) =>
-        s + estimateTokens(sanitiseChapter(c.rawText)) + SYSTEM_TOKENS_ANNOT,
-      0,
-    );
-    const cachedTokens = chapters.length * SYSTEM_TOKENS_ANNOT; // saved by cache after first chapter
-    const totalIn = perChapterIn + sampleTokens + SYSTEM_TOKENS_GLOSSARY;
-    const totalOut =
-      chapters.length * OUTPUT_TOKENS_PER_CHAPTER + 600; // glossary output
-    if (!pricing || (pricing.inputPerM === 0 && pricing.outputPerM === 0)) {
-      return {
-        provider,
-        model,
-        totalTokensIn: totalIn,
-        totalTokensOut: totalOut,
-        costUSDWithoutCache: 0,
-        costUSDWithCache: 0,
-        isFree: true,
-        notes: 'Local provider; cost is electricity only.',
-      };
-    }
-    const costNoCache =
-      (totalIn / 1_000_000) * pricing.inputPerM +
-      (totalOut / 1_000_000) * pricing.outputPerM;
-    const costCached =
-      ((totalIn - cachedTokens) / 1_000_000) * pricing.inputPerM +
-      (cachedTokens / 1_000_000) * pricing.cachedInputPerM +
-      (totalOut / 1_000_000) * pricing.outputPerM;
-    return {
-      provider,
-      model,
-      totalTokensIn: totalIn,
-      totalTokensOut: totalOut,
-      costUSDWithoutCache: round(costNoCache),
-      costUSDWithCache: round(costCached),
-      isFree: false,
-    };
-  }
-
-  // ── Cache & overrides ───────────────────────────────────────────
+  // ── Persistence helpers ─────────────────────────────────────────
 
   async getGlossary(): Promise<CharacterGlossary | null> {
-    return this.readJSON<CharacterGlossary>(`${this.novelDir}/glossary.json`);
-  }
-
-  async setGlossary(glossary: CharacterGlossary): Promise<void> {
-    this.ensureDirs();
-    await this.writeJSON(`${this.novelDir}/glossary.json`, glossary);
+    return this.readJSON<CharacterGlossary>(this.glossaryPath());
   }
 
   async getVoiceMap(): Promise<VoiceMap | null> {
-    return this.readJSON<VoiceMap>(`${this.novelDir}/voice-map.json`);
+    return this.readJSON<VoiceMap>(this.voiceMapPath());
   }
 
-  async setVoiceMap(voiceMap: VoiceMap): Promise<void> {
-    this.ensureDirs();
-    await this.writeJSON(`${this.novelDir}/voice-map.json`, voiceMap);
-  }
-
-  async getAnnotation(chapterKey: string): Promise<ChapterAnnotation | null> {
+  async getAnnotation(
+    chapterId: number,
+  ): Promise<ChapterAnnotation | null> {
     return this.readJSON<ChapterAnnotation>(
-      `${this.annotationsDir}/${chapterKey}.json`,
-    );
-  }
-
-  async getAnnotationByPath(path: string): Promise<ChapterAnnotation | null> {
-    return this.getAnnotation(chapterKeyFor(path));
-  }
-
-  async writeAnnotation(annotation: ChapterAnnotation): Promise<void> {
-    this.ensureDirs();
-    await this.writeJSON(
-      `${this.annotationsDir}/${annotation.chapterKey}.json`,
-      annotation,
+      this.annotationPath(chapterId),
     );
   }
 
   /**
-   * Fully rebuild the glossary from a 3-chapter sample. Voice map is
-   * rebuilt too. Existing annotations stay valid (speaker names don't
-   * change unless the user merges characters).
+   * Wipe everything cached for this novel — glossary, voice map,
+   * annotations, and rendered audio. Caller is responsible for clearing
+   * the per-chapter `isAvailableAsAudiobook` DB flags.
    */
-  async rebuildGlossary(sample: ChapterWithText[]): Promise<CharacterGlossary> {
-    this.ensureDirs();
-    const sampleText = sample.slice(0, 3).map(c => sanitiseChapter(c.rawText));
-    const glossary = await this.annotator.buildGlossary(
-      this.config.novelId,
-      sampleText,
-    );
-    await this.setGlossary(glossary);
-    const voiceMap = this.caster.buildVoiceMap(glossary);
-    await this.setVoiceMap(voiceMap);
-    return glossary;
-  }
-
   async clearCache(): Promise<void> {
-    if (NativeFile.exists(this.novelDir)) {
-      NativeFile.unlink(this.novelDir);
+    const dir = novelDir(this.config.pluginId, this.config.novelId);
+    // Don't blow away the entire novel dir — it also contains
+    // downloaded chapter HTML. Remove only the audiobook artefacts.
+    this.tryUnlink(this.glossaryPath());
+    this.tryUnlink(this.voiceMapPath());
+    if (NativeFile.exists(dir)) {
+      try {
+        for (const entry of NativeFile.readDir(dir)) {
+          if (!entry.isDirectory) continue;
+          const annotation = `${entry.path}/audiobook.json`;
+          this.tryUnlink(annotation);
+        }
+      } catch {
+        /* ignore */
+      }
     }
-  }
-
-  audioCache(): AudioCache {
-    return this.cache;
+    this.cache.clearForNovel(this.config.novelId);
   }
 
   // ── Internals ───────────────────────────────────────────────────
 
+  /**
+   * If the annotation introduces 3+ unknown speakers, ask the LLM to
+   * extend the glossary, cast their voices, and persist. Returns the
+   * updated glossary or null if no change.
+   */
+  private async discoverNewSpeakers(
+    annotation: ChapterAnnotation,
+    glossary: CharacterGlossary,
+  ): Promise<CharacterGlossary | null> {
+    const newSpeakers = collectUnknownSpeakers(annotation.segments, glossary);
+    if (newSpeakers.length < 3) return null;
+
+    const excerpts = annotation.segments
+      .filter(s => newSpeakers.includes(s.speaker))
+      .slice(0, 6)
+      .map(s => s.text);
+
+    try {
+      const extras = await this.annotator.extendGlossary(
+        glossary,
+        newSpeakers,
+        excerpts,
+      );
+      if (extras.length === 0) return null;
+
+      const updated: CharacterGlossary = {
+        ...glossary,
+        characters: [...glossary.characters, ...extras],
+        updatedAt: new Date().toISOString(),
+      };
+      await this.writeGlossary(updated);
+
+      const voiceMap = await this.getVoiceMap();
+      if (voiceMap) {
+        const extended = this.caster.extendVoiceMap(voiceMap, extras);
+        await this.writeVoiceMap(extended);
+      }
+      return updated;
+    } catch {
+      // best-effort; new speakers fall back to narrator voice
+      return null;
+    }
+  }
+
   private async getOrBuildGlossary(
-    chapters: ChapterWithText[],
+    chapter: ChapterWithText,
   ): Promise<CharacterGlossary> {
     const existing = await this.getGlossary();
     if (existing) return existing;
-    const sample = chapters.slice(0, 3).map(c => sanitiseChapter(c.rawText));
+    const sample = [sanitiseChapter(chapter.rawText)];
     const glossary = await this.annotator.buildGlossary(
-      this.config.novelId,
+      String(this.config.novelId),
       sample,
     );
-    await this.setGlossary(glossary);
+    await this.writeGlossary(glossary);
     const voiceMap = this.caster.buildVoiceMap(glossary);
-    await this.setVoiceMap(voiceMap);
+    await this.writeVoiceMap(voiceMap);
     return glossary;
   }
 
-  private ensureDirs() {
-    if (!NativeFile.exists(this.novelDir)) NativeFile.mkdir(this.novelDir);
-    if (!NativeFile.exists(this.annotationsDir))
-      {NativeFile.mkdir(this.annotationsDir);}
+  private glossaryPath(): string {
+    return audiobookGlossaryPath(this.config.pluginId, this.config.novelId);
+  }
+
+  private voiceMapPath(): string {
+    return audiobookVoiceMapPath(this.config.pluginId, this.config.novelId);
+  }
+
+  private annotationPath(chapterId: number): string {
+    return audiobookAnnotationPath(
+      this.config.pluginId,
+      this.config.novelId,
+      chapterId,
+    );
+  }
+
+  private async writeAnnotation(annotation: ChapterAnnotation): Promise<void> {
+    const dir = chapterDir(
+      this.config.pluginId,
+      this.config.novelId,
+      annotation.chapterId,
+    );
+    if (!NativeFile.exists(dir)) NativeFile.mkdir(dir);
+    NativeFile.writeFile(
+      this.annotationPath(annotation.chapterId),
+      JSON.stringify(annotation, null, 2),
+    );
+  }
+
+  private async writeGlossary(glossary: CharacterGlossary): Promise<void> {
+    const dir = novelDir(this.config.pluginId, this.config.novelId);
+    if (!NativeFile.exists(dir)) NativeFile.mkdir(dir);
+    NativeFile.writeFile(this.glossaryPath(), JSON.stringify(glossary, null, 2));
+  }
+
+  private async writeVoiceMap(voiceMap: VoiceMap): Promise<void> {
+    const dir = novelDir(this.config.pluginId, this.config.novelId);
+    if (!NativeFile.exists(dir)) NativeFile.mkdir(dir);
+    NativeFile.writeFile(this.voiceMapPath(), JSON.stringify(voiceMap, null, 2));
+  }
+
+  private tryUnlink(path: string) {
+    try {
+      if (NativeFile.exists(path)) NativeFile.unlink(path);
+    } catch {
+      /* ignore */
+    }
   }
 
   private async readJSON<T>(path: string): Promise<T | null> {
@@ -509,17 +446,9 @@ export class AudiobookPipeline {
       if (!NativeFile.exists(path)) return null;
       return JSON.parse(NativeFile.readFile(path)) as T;
     } catch {
-      try {
-        if (NativeFile.exists(path)) NativeFile.unlink(path);
-      } catch {
-        /* ignore */
-      }
+      this.tryUnlink(path);
       return null;
     }
-  }
-
-  private async writeJSON(path: string, data: unknown): Promise<void> {
-    NativeFile.writeFile(path, JSON.stringify(data, null, 2));
   }
 }
 
@@ -565,8 +494,4 @@ function applyPronunciation(
     out = out.replace(new RegExp(`\\b${escaped}\\b`, 'g'), pron);
   }
   return out;
-}
-
-function round(v: number): number {
-  return Math.round(v * 1000) / 1000;
 }

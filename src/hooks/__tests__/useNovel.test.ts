@@ -54,6 +54,7 @@ const makeChapter = (id: number, overrides = {}): ChapterInfo => ({
   chapterNumber: id,
   unread: true,
   isDownloaded: false,
+  isAvailableAsAudiobook: false,
   bookmark: false,
   progress: 0,
   page: '1',

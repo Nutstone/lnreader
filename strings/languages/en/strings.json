@@ -457,28 +457,11 @@
     "tracked": "Tracked",
     "tracking": "Tracking",
     "audiobook": {
-      "custom": "Custom",
-      "customAmount": "Process custom amount",
-      "next": "Next chapter",
-      "next5": "Next 5 chapters",
-      "next10": "Next 10 chapters",
-      "unread": "Unread",
-      "editCast": "Edit cast…",
-      "clearCache": "Clear audiobook cache"
-    },
-    "glossaryEditor": {
-      "addCharacter": "Add character",
-      "aliases": "Aliases (comma-separated)",
-      "deleteConfirm": "Delete glossary and all voice data for this novel?",
-      "deleteGlossary": "Delete glossary",
-      "description": "Description",
-      "gender": "Gender",
-      "name": "Name",
-      "narratorGender": "Narrator gender",
-      "noGlossary": "No glossary found. Process chapters through the audiobook pipeline first.",
-      "personality": "Personality traits",
-      "save": "Save glossary",
-      "title": "Character Glossary"
+      "next": "Process next chapter",
+      "next5": "Process next 5 chapters",
+      "next10": "Process next 10 chapters",
+      "unread": "Process unread chapters",
+      "clearCache": "Clear audiobook cache for this novel"
     },
     "unknownStatus": "Unknown status",
     "updatedToast": "Updated %{name}"
@@ -598,43 +581,6 @@
     "AUDIOBOOK_PIPELINE": "Processing Audiobook"
   },
   "audiobookSettings": {
-    "title": "Audiobook",
-    "llmProvider": "LLM Provider",
-    "apiKey": "API Key",
-    "baseUrl": "Base URL",
-    "model": "Model",
-    "ttsQuality": "TTS Quality",
-    "lookaheadSegments": "Lookahead segments",
-    "sampleRate": "Sample rate",
-    "providerAnthropic": "Anthropic",
-    "providerGemini": "Gemini",
-    "providerOllama": "Ollama"
-  },
-  "audiobookPlayer": {
-    "title": "Listening",
-    "speed": "Speed",
-    "sleepTimer": "Sleep timer",
-    "off": "Off",
-    "rendering": "Rendering ahead…",
-    "noAudio": "No audio yet",
-    "openExpanded": "Open player"
-  },
-  "glossaryEditor": {
-    "addCharacter": "Add character",
-    "aliases": "Aliases (comma-separated)",
-    "deleteConfirm": "Delete glossary and all voice data for this novel?",
-    "deleteGlossary": "Delete glossary",
-    "description": "Description",
-    "gender": "Gender",
-    "name": "Name",
-    "narratorGender": "Narrator gender",
-    "noGlossary": "No glossary found. Process chapters through the audiobook pipeline first.",
-    "personality": "Personality traits",
-    "voiceHints": "Voice hints",
-    "pronunciation": "Pronunciation override",
-    "save": "Save glossary",
-    "title": "Character Glossary",
-    "recast": "Re-cast voices",
-    "done": "Done"
+    "title": "Audiobook"
   }
 }
