@@ -54,13 +54,15 @@ Configured at Settings → Audiobook:
 - Auto-advance to next chapter.
 - Emotion shaping (volume gain on whisper / shouting).
 
-## Regenerating the kokoro-js bundle
+## kokoro-js bundle
 
-The bundled JS in `android/app/src/main/assets/audiobook/kokoro-js.bundle.js`
-is produced by:
+`android/app/src/main/assets/audiobook/kokoro-js.bundle.js` is build
+output, gitignored, and regenerated automatically:
 
-```sh
-node scripts/audiobook-bundle-kokoro.mjs
-```
+- `pnpm bundle:audiobook` — direct invocation
+- `pnpm dev:android` / `pnpm build:release:android` — chained in
+- Gradle `preBuild` task — covers `./gradlew` invocations
+- CI step in `.github/workflows/build.yml`
 
-Re-run after upgrading `kokoro-js`.
+Driver: `scripts/audiobook-bundle-kokoro.mjs` (esbuild → ESM, 2.1 MiB).
+Re-runs are cheap; output is deterministic enough for CI caching.

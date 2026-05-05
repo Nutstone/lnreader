@@ -35,7 +35,6 @@ import {
 } from './types';
 import { LLMAnnotator } from './llmAnnotator';
 import { VoiceCaster } from './voiceCaster';
-import { sanitiseChapter } from './chapterSanitiser';
 import { AudioCache } from './audioCache';
 import { ITTSRenderer, StreamOptions, effectiveSpeed } from './renderers/types';
 import { getEmotionModulation } from './emotionModulation';
@@ -83,10 +82,9 @@ export class AudiobookPipeline {
     if (cached) return cached;
 
     const glossary = await this.getOrBuildGlossary(chapter);
-    const sanitised = sanitiseChapter(chapter.rawText);
     const annotation = await this.annotator.annotateChapter(
       chapter.id,
-      sanitised,
+      chapter.rawText,
       glossary,
     );
     await this.writeAnnotation(annotation);
@@ -115,7 +113,7 @@ export class AudiobookPipeline {
 
     let glossary = await this.getGlossary();
     if (!glossary) {
-      const sample = chapters.slice(0, 3).map(c => sanitiseChapter(c.rawText));
+      const sample = chapters.slice(0, 3).map(c => c.rawText);
       glossary = await this.annotator.buildGlossary(
         String(this.config.novelId),
         sample,
@@ -143,10 +141,9 @@ export class AudiobookPipeline {
           chapterTotal: chapters.length,
         });
 
-        const sanitised = sanitiseChapter(chapter.rawText);
         annotation = await this.annotator.annotateChapter(
           chapter.id,
-          sanitised,
+          chapter.rawText,
           glossary,
         );
         await this.writeAnnotation(annotation);
@@ -381,10 +378,9 @@ export class AudiobookPipeline {
   ): Promise<CharacterGlossary> {
     const existing = await this.getGlossary();
     if (existing) return existing;
-    const sample = [sanitiseChapter(chapter.rawText)];
     const glossary = await this.annotator.buildGlossary(
       String(this.config.novelId),
-      sample,
+      [chapter.rawText],
     );
     await this.writeGlossary(glossary);
     const voiceMap = this.caster.buildVoiceMap(glossary);

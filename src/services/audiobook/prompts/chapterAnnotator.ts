@@ -105,6 +105,15 @@ Guidelines:
 - Combine very short narration ("he said") with adjacent dialogue when natural.
 - Emotion describes how to SAY it, not what is described. "She watched the sunset" = neutral, not happy.
 
+Input may contain noise from the source plugin: raw HTML tags, HTML
+entities (&nbsp;, &amp;), translator notes (often "[T/N: ...]" or
+"(TN: ...)"), author's notes / "A/N" blocks, numeric footnotes ("[1]",
+<sup>1</sup>), and translator boilerplate (Patreon / Ko-fi / donate
+links, "next chapter" / "previous chapter", "translated by ..."). Skip
+all of it; do not emit segments for any of it. Treat lines of "***",
+"---", or "* * *" as scene breaks — emit pauseBefore: "long" on the
+next segment.
+
 Respond by calling the emit_annotation tool with structured arguments. Do NOT respond with prose.`;
 
 export function buildAnnotationUserMessage(

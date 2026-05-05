@@ -8,8 +8,9 @@ npm-debug.*
 *.mobileprovision
 *.orig.*
 web-build/
-.env
+.*env
 reader_playground/index.html
+android/app/src/main/assets/audiobook/kokoro-js.bundle.js
 # macOS
 .DS_Store
 
@@ -89,7 +90,16 @@ flake.lock
 # pnpm
 .pnpm-store
 
+src/generated/**/*
+
 .cursor/
 .agents/
 .claude/
 .jj/
+.sisyphus/
+
+# Rock
+.rock/
+
+# TypeScript
+*.tsbuildinfo
