@@ -1,4 +1,5 @@
 import { useMMKVObject } from 'react-native-mmkv';
+import type { TTSPrecision } from '@services/audiobook/types';
 
 export const AUDIOBOOK_SETTINGS = 'AUDIOBOOK_SETTINGS';
 
@@ -7,9 +8,10 @@ export interface AudiobookSettings {
   apiKey: string;
   baseUrl: string;
   model: string;
-  ttsQuality: 'q4' | 'q8' | 'fp16';
+  ttsPrecision: TTSPrecision;
   lookaheadSegments: number;
   sampleRate: number;
+  expressoMainCharacterSlots: number;
 }
 
 const initialAudiobookSettings: AudiobookSettings = {
@@ -17,9 +19,10 @@ const initialAudiobookSettings: AudiobookSettings = {
   apiKey: '',
   baseUrl: '',
   model: '',
-  ttsQuality: 'q8',
+  ttsPrecision: 'q8',
   lookaheadSegments: 2,
   sampleRate: 24000,
+  expressoMainCharacterSlots: 3,
 };
 
 export const useAudiobookSettings = () => {

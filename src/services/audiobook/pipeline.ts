@@ -5,26 +5,32 @@ import {
   CharacterGlossary,
   ChapterAnnotation,
   VoiceMap,
-  BlendedVoice,
+  VoiceAssignment,
   AudioSegment,
   PipelineProgress,
 } from './types';
 import { LLMAnnotator } from './llmAnnotator';
-import { VoiceBlender } from './voiceBlender';
+import { VoiceAssigner } from './voiceAssigner';
 import { TTSRenderer } from './ttsRenderer';
+import { VOICE_BANK_SCHEMA_VERSION } from './voiceBank';
 
 export class AudiobookPipeline {
   private config: AudiobookConfig;
   private annotator: LLMAnnotator;
-  private blender: VoiceBlender;
+  private assigner: VoiceAssigner;
   private renderer: TTSRenderer;
   private novelDir: string;
 
   constructor(config: AudiobookConfig) {
     this.config = config;
     this.annotator = new LLMAnnotator(config.llm);
-    this.blender = new VoiceBlender();
-    this.renderer = new TTSRenderer(config.tts);
+    this.assigner = new VoiceAssigner({
+      expressoMainCharacterSlots: config.tts.expressoMainCharacterSlots,
+    });
+    this.renderer = new TTSRenderer(
+      config.tts,
+      `${AUDIOBOOK_STORAGE}/_tts-cache`,
+    );
     this.novelDir = `${AUDIOBOOK_STORAGE}/${config.novelId}`;
   }
 
@@ -68,7 +74,7 @@ export class AudiobookPipeline {
 
     let voiceMap = await this.getVoiceMap();
     if (!voiceMap) {
-      voiceMap = this.blender.buildVoiceMap(glossary);
+      voiceMap = this.assigner.buildVoiceMap(glossary);
       await this.writeJSON(`${this.novelDir}/voice-map.json`, voiceMap);
     }
 
@@ -159,14 +165,14 @@ export class AudiobookPipeline {
 
   async overrideVoice(
     characterName: string,
-    voice: BlendedVoice,
+    assignment: VoiceAssignment,
   ): Promise<void> {
     let voiceMap = await this.getVoiceMap();
     if (!voiceMap) {
       throw new Error('No voice map found. Run processNovel() first.');
     }
 
-    voiceMap = this.blender.overrideVoice(voiceMap, characterName, voice);
+    voiceMap = this.assigner.overrideVoice(voiceMap, characterName, assignment);
     await this.writeJSON(`${this.novelDir}/voice-map.json`, voiceMap);
   }
 
@@ -177,7 +183,18 @@ export class AudiobookPipeline {
   }
 
   async getVoiceMap(): Promise<VoiceMap | null> {
-    return this.readJSON<VoiceMap>(`${this.novelDir}/voice-map.json`);
+    const map = await this.readJSON<VoiceMap>(
+      `${this.novelDir}/voice-map.json`,
+    );
+    if (!map) {
+      return null;
+    }
+    if (map.schemaVersion !== VOICE_BANK_SCHEMA_VERSION) {
+      // Cached voice map predates the current voice bank — discard
+      // so the pipeline rebuilds it with the new assignments.
+      return null;
+    }
+    return map;
   }
 
   async getAnnotation(chapterId: number): Promise<ChapterAnnotation | null> {

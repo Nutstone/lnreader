@@ -63,9 +63,10 @@ export class AudiobookPlayer {
         model: settings.model || undefined,
       },
       tts: {
-        dtype: settings.ttsQuality || 'q8',
+        precision: settings.ttsPrecision || 'q8',
         lookaheadSegments: settings.lookaheadSegments ?? 2,
         sampleRate: settings.sampleRate || 24000,
+        expressoMainCharacterSlots: settings.expressoMainCharacterSlots ?? 3,
       },
       cacheDir: AUDIOBOOK_STORAGE,
       novelId,

@@ -14,10 +14,10 @@ const providers = [
   { key: 'ollama' as const, label: 'audiobookSettings.providerOllama' },
 ] as const;
 
-const ttsQualities = [
-  { key: 'q4' as const, label: 'q4 (Fastest)' },
-  { key: 'q8' as const, label: 'q8 (Balanced)' },
-  { key: 'fp16' as const, label: 'fp16 (Best)' },
+const ttsPrecisions = [
+  { key: 'q8' as const, label: 'q8 (Fastest)' },
+  { key: 'fp16' as const, label: 'fp16 (Balanced)' },
+  { key: 'fp32' as const, label: 'fp32 (Best)' },
 ] as const;
 
 const AudiobookSettingsScreen = ({
@@ -29,8 +29,9 @@ const AudiobookSettingsScreen = ({
     apiKey,
     baseUrl,
     model,
-    ttsQuality,
+    ttsPrecision,
     lookaheadSegments,
+    expressoMainCharacterSlots,
     setAudiobookSettings,
   } = useAudiobookSettings();
 
@@ -39,6 +40,9 @@ const AudiobookSettingsScreen = ({
   const [modelInput, setModelInput] = useState(model);
   const [lookaheadInput, setLookaheadInput] = useState(
     String(lookaheadSegments),
+  );
+  const [slotsInput, setSlotsInput] = useState(
+    String(expressoMainCharacterSlots),
   );
 
   return (
@@ -147,24 +151,24 @@ const AudiobookSettingsScreen = ({
             {getString('audiobookSettings.ttsQuality')}
           </List.SubHeader>
           <View style={styles.chipRow}>
-            {ttsQualities.map(q => (
+            {ttsPrecisions.map(q => (
               <Pressable
                 key={q.key}
                 style={[
                   styles.chip,
                   {
                     backgroundColor:
-                      ttsQuality === q.key
+                      ttsPrecision === q.key
                         ? theme.primary
                         : theme.surfaceVariant,
                   },
                 ]}
-                onPress={() => setAudiobookSettings({ ttsQuality: q.key })}
+                onPress={() => setAudiobookSettings({ ttsPrecision: q.key })}
               >
                 <Text
                   style={{
                     color:
-                      ttsQuality === q.key
+                      ttsPrecision === q.key
                         ? theme.onPrimary
                         : theme.onSurfaceVariant,
                   }}
@@ -189,6 +193,29 @@ const AudiobookSettingsScreen = ({
                 const n = parseInt(lookaheadInput, 10);
                 if (!isNaN(n) && n >= 0) {
                   setAudiobookSettings({ lookaheadSegments: n });
+                }
+              }}
+              keyboardType="numeric"
+              theme={{ colors: { ...theme } }}
+              style={styles.textInput}
+              dense
+            />
+          </View>
+        </List.Section>
+
+        <List.Section>
+          <List.SubHeader theme={theme}>
+            Expresso main-character slots (max 3)
+          </List.SubHeader>
+          <View style={styles.inputContainer}>
+            <TextInput
+              mode="outlined"
+              value={slotsInput}
+              onChangeText={setSlotsInput}
+              onBlur={() => {
+                const n = parseInt(slotsInput, 10);
+                if (!isNaN(n) && n >= 0 && n <= 3) {
+                  setAudiobookSettings({ expressoMainCharacterSlots: n });
                 }
               }}
               keyboardType="numeric"
