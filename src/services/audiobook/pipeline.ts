@@ -14,7 +14,7 @@
  */
 
 import NativeFile from '@specs/NativeFile';
-import { AUDIOBOOK_STORAGE } from '@utils/Storages';
+import { AUDIOBOOK_AUDIO_CACHE, AUDIOBOOK_STORAGE } from '@utils/Storages';
 import {
   AnnotatedSegment,
   AudioSegment,
@@ -195,7 +195,7 @@ export class AudiobookPipeline {
       chapterId: chapter.id,
     };
     this.cache.ensureChapterDir(keys);
-    const outputDir = `${this.novelDir}/audio/${annotation.chapterKey}`;
+    const outputDir = `${AUDIOBOOK_AUDIO_CACHE}/${this.config.novelId}/${annotation.chapterKey}`;
 
     const manifest = this.cache.readManifest(keys);
     const { reusableIndexes } = this.cache.computeInvalidation(
@@ -311,12 +311,13 @@ export class AudiobookPipeline {
 
   /**
    * Wipe everything cached for this novel — glossary, voice map,
-   * annotations, audio. Forces re-annotation on next play.
+   * annotations, and rendered audio. Forces re-annotation on next play.
    */
   async clearCache(): Promise<void> {
     if (NativeFile.exists(this.novelDir)) {
       NativeFile.unlink(this.novelDir);
     }
+    this.cache.clearForNovel(this.config.novelId);
   }
 
   // ── Internals ───────────────────────────────────────────────────

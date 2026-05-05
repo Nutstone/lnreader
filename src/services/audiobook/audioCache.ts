@@ -1,20 +1,23 @@
 /**
  * Audio cache for rendered chapters.
  *
- * Layout:
- *   AUDIOBOOK_STORAGE/<novelId>/audio/<chapterKey>/
+ * Layout (under AUDIOBOOK_AUDIO_CACHE — the OS cache directory):
+ *   <novelId>/<chapterKey>/
  *     manifest.json
  *     seg_0001.wav
  *     ...
  *
+ * Lives in the cache directory so backups skip it. Glossary, voice
+ * map, and annotations stay under AUDIOBOOK_STORAGE (backed up).
+ *
  * Reuses `@specs/NativeFile`. The manifest is the index. There's no
  * size accounting — `NativeFile` doesn't expose stat, and reading every
  * WAV's content to estimate bytes is absurd. The settings screen
- * exposes a single "clear cache" button and that's it.
+ * exposes a single "clear rendered audio" button and that's it.
  */
 
 import NativeFile from '@specs/NativeFile';
-import { AUDIOBOOK_STORAGE } from '@utils/Storages';
+import { AUDIOBOOK_AUDIO_CACHE } from '@utils/Storages';
 import {
   AudioSegmentRef,
   ChapterAudioManifest,
@@ -29,11 +32,11 @@ export interface AudioCacheKeys {
 
 export class AudioCache {
   private novelDir(novelId: string): string {
-    return `${AUDIOBOOK_STORAGE}/${novelId}`;
+    return `${AUDIOBOOK_AUDIO_CACHE}/${novelId}`;
   }
 
   private chapterDir(keys: AudioCacheKeys): string {
-    return `${this.novelDir(keys.novelId)}/audio/${keys.chapterKey}`;
+    return `${this.novelDir(keys.novelId)}/${keys.chapterKey}`;
   }
 
   private manifestPath(keys: AudioCacheKeys): string {
@@ -141,11 +144,21 @@ export class AudioCache {
   }
 
   /**
-   * Drop every audiobook file across the app.
+   * Drop all rendered audio for every novel. Annotations, glossaries,
+   * and voice maps under AUDIOBOOK_STORAGE are NOT touched — wiping
+   * those is what `pipeline.clearCache(novelId)` is for.
    */
   clearAll(): void {
-    if (!NativeFile.exists(AUDIOBOOK_STORAGE)) return;
-    NativeFile.unlink(AUDIOBOOK_STORAGE);
-    NativeFile.mkdir(AUDIOBOOK_STORAGE);
+    if (!NativeFile.exists(AUDIOBOOK_AUDIO_CACHE)) return;
+    NativeFile.unlink(AUDIOBOOK_AUDIO_CACHE);
+    NativeFile.mkdir(AUDIOBOOK_AUDIO_CACHE);
+  }
+
+  /**
+   * Drop the rendered-audio cache for one novel (manifest + WAVs).
+   */
+  clearForNovel(novelId: string): void {
+    const dir = this.novelDir(novelId);
+    if (NativeFile.exists(dir)) NativeFile.unlink(dir);
   }
 }
