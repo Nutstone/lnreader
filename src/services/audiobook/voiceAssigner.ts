@@ -1,12 +1,13 @@
 /**
- * VoiceAssigner — replaces the old VoiceBlender.
+ * VoiceAssigner — assigns characters to voices.
  *
  * Assignment rules:
- *  1. The narrator is locked to a designated Expresso speaker so it
- *     can express emotion across the book.
+ *  1. The narrator is locked to a designated emotional speaker
+ *     (default Expresso ex03) so it can express emotion across
+ *     the book.
  *  2. The top N main characters (by `importance`, then by mention
- *     order) are locked to the remaining Expresso speakers, gender
- *     matched when possible.
+ *     order) are locked to remaining emotional speakers — Expresso
+ *     first, then voice-zero — gender-matched when possible.
  *  3. Everyone else is assigned a stable donation voice via a
  *     deterministic hash of the character name, gender-filtered.
  *     Same name → same voice across runs and chapters.
@@ -15,30 +16,31 @@
 import type {
   Character,
   CharacterGlossary,
-  ExpressoSpeaker,
+  EmotionalSpeaker,
   VoiceAssignment,
   VoiceMap,
 } from './types';
 import {
   DEFAULT_NARRATOR_SPEAKER_ID,
   DONATION_VOICES,
-  EXPRESSO_SPEAKERS,
+  EMOTIONAL_SPEAKERS,
+  MAX_MAIN_CHARACTER_EMOTIONAL_SLOTS,
   VOICE_BANK_SCHEMA_VERSION,
   donationsForGender,
-  findExpressoSpeaker,
+  findEmotionalSpeaker,
 } from './voiceBank';
 
 export interface VoiceAssignerOptions {
   /**
-   * How many main characters get locked to Expresso speakers.
-   * Capped at the number of available speakers minus the narrator.
+   * How many main characters get locked to emotional speakers.
+   * Capped at MAX_MAIN_CHARACTER_EMOTIONAL_SLOTS.
    */
-  expressoMainCharacterSlots: number;
+  mainCharacterEmotionalSlots: number;
   narratorSpeakerId?: string;
 }
 
 const DEFAULT_OPTIONS: VoiceAssignerOptions = {
-  expressoMainCharacterSlots: 3,
+  mainCharacterEmotionalSlots: 10,
   narratorSpeakerId: DEFAULT_NARRATOR_SPEAKER_ID,
 };
 
@@ -53,24 +55,24 @@ export class VoiceAssigner {
     const mappings: Record<string, VoiceAssignment> = {};
 
     const narratorSpeaker =
-      findExpressoSpeaker(
+      findEmotionalSpeaker(
         this.options.narratorSpeakerId ?? DEFAULT_NARRATOR_SPEAKER_ID,
-      ) ?? EXPRESSO_SPEAKERS[0];
+      ) ?? EMOTIONAL_SPEAKERS[0];
 
     mappings.narrator = {
-      kind: 'expresso',
+      kind: 'emotional',
       speakerId: narratorSpeaker.id,
       label: 'Narrator',
     };
 
-    const remainingExpresso = EXPRESSO_SPEAKERS.filter(
+    const remainingEmotional = EMOTIONAL_SPEAKERS.filter(
       s => s.id !== narratorSpeaker.id,
     );
 
     const ranked = this.rankByImportance(glossary.characters);
     const slots = Math.min(
-      this.options.expressoMainCharacterSlots,
-      remainingExpresso.length,
+      this.options.mainCharacterEmotionalSlots,
+      MAX_MAIN_CHARACTER_EMOTIONAL_SLOTS,
     );
 
     const taken = new Set<string>();
@@ -80,16 +82,16 @@ export class VoiceAssigner {
       if (slotIndex >= slots) {
         break;
       }
-      const speaker = pickExpressoForGender(
-        remainingExpresso,
+      const speaker = pickEmotionalForGender(
+        remainingEmotional,
         character.gender,
         taken,
       );
       if (!speaker) {
-        continue;
+        break;
       }
       mappings[character.name] = {
-        kind: 'expresso',
+        kind: 'emotional',
         speakerId: speaker.id,
         label: `${character.name} (${speaker.label})`,
       };
@@ -154,11 +156,11 @@ export class VoiceAssigner {
   }
 }
 
-const pickExpressoForGender = (
-  pool: ExpressoSpeaker[],
+const pickEmotionalForGender = (
+  pool: EmotionalSpeaker[],
   gender: Character['gender'],
   taken: Set<string>,
-): ExpressoSpeaker | undefined => {
+): EmotionalSpeaker | undefined => {
   const matchGender = (g: 'male' | 'female') =>
     pool.find(s => !taken.has(s.id) && s.gender === g);
 

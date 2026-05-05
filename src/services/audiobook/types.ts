@@ -32,9 +32,14 @@ export interface TTSConfig {
   precision: TTSPrecision;
   lookaheadSegments: number;
   sampleRate: number;
-  /** How many of the top characters get locked to Expresso speakers. */
-  expressoMainCharacterSlots: number;
-  /** Override base URL for the Pocket TTS model + voice repository. */
+  /**
+   * How many of the top characters get locked to *emotional* speakers
+   * (Expresso + voice-zero), which can express emotion across the
+   * book. Beyond this count, characters fall back to single-emotion
+   * donation voices.
+   */
+  mainCharacterEmotionalSlots: number;
+  /** Override base URL for the Pocket TTS model. */
   modelRepoUrl?: string;
 }
 
@@ -99,30 +104,40 @@ export interface ChapterAnnotation {
 // ── Voice Bank ──────────────────────────────────────────────────
 
 /**
- * One physical voice clip / embedding in the kyutai/tts-voices
- * repository. Stable across sessions.
+ * One physical voice clip in a remote voice repository. The default
+ * base URL is the kyutai/tts-voices Hugging Face repo; clips from
+ * other sources (e.g. voice-zero on GitHub) override `baseUrl`.
  */
 export interface VoiceClip {
-  /** Path inside the kyutai/tts-voices HF repo (without leading slash). */
+  /** Path under the base URL (without leading slash). */
   path: string;
-  /** Optional pre-computed speaker-state safetensors path. */
-  embeddingPath?: string;
+  /** Optional override for the repository base URL. */
+  baseUrl?: string;
 }
 
 /**
- * An Expresso speaker has multiple emotional variants for the same
- * voice identity. This is the disentangled timbre/emotion design
- * the audiobook engine relies on.
+ * Where the speaker's clips come from. Used for telemetry and
+ * licensing display only — the runtime treats both sources
+ * identically.
  */
-export interface ExpressoSpeaker {
-  /** Stable speaker ID, e.g. "ex01", "ex02". */
+export type EmotionalSpeakerSource = 'expresso' | 'voice-zero';
+
+/**
+ * A speaker that exposes multiple emotional variants for the same
+ * voice identity. This is the disentangled timbre/emotion design
+ * the audiobook engine relies on. Both Expresso (4 speakers, CC-BY-NC)
+ * and voice-zero (LibriVox-derived, public domain, with Chatterbox-
+ * synthesized emotional variants) populate this pool.
+ */
+export interface EmotionalSpeaker {
+  /** Stable speaker ID, e.g. "ex01" or "vz_kristin_hughes". */
   id: string;
   label: string;
   gender: 'male' | 'female';
+  source: EmotionalSpeakerSource;
   /**
    * Map from our Emotion enum to the speaker's clip for that
-   * emotion. `neutral` MUST be present; others are optional and
-   * fall back to `neutral`.
+   * emotion. `neutral` MUST be present; others fall back to it.
    */
   variants: Partial<Record<Emotion, VoiceClip>> & { neutral: VoiceClip };
 }
@@ -138,12 +153,13 @@ export interface DonationVoice {
 // ── Voice Assignment ────────────────────────────────────────────
 
 /**
- * The runtime voice for a character. Either an Expresso lock
- * (with full emotional range) or a fixed donation voice.
+ * The runtime voice for a character. Either a lock to an emotional
+ * speaker (full emotional range) or a fixed donation voice
+ * (single emotion).
  */
 export type VoiceAssignment =
   | {
-      kind: 'expresso';
+      kind: 'emotional';
       speakerId: string;
       label: string;
     }

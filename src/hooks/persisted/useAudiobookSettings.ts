@@ -11,7 +11,7 @@ export interface AudiobookSettings {
   ttsPrecision: TTSPrecision;
   lookaheadSegments: number;
   sampleRate: number;
-  expressoMainCharacterSlots: number;
+  mainCharacterEmotionalSlots: number;
 }
 
 const initialAudiobookSettings: AudiobookSettings = {
@@ -22,7 +22,7 @@ const initialAudiobookSettings: AudiobookSettings = {
   ttsPrecision: 'q8',
   lookaheadSegments: 2,
   sampleRate: 24000,
-  expressoMainCharacterSlots: 3,
+  mainCharacterEmotionalSlots: 10,
 };
 
 export const useAudiobookSettings = () => {

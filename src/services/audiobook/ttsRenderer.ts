@@ -10,9 +10,9 @@ import {
 import { PocketTTSAdapter } from './pocketTTSAdapter';
 import { ModelDownloader } from './modelDownloader';
 import {
-  expressoVariantClip,
+  emotionalVariantClip,
   findDonationVoice,
-  findExpressoSpeaker,
+  findEmotionalSpeaker,
 } from './voiceBank';
 
 const PAUSE_DURATIONS: Record<'short' | 'medium' | 'long', number> = {
@@ -125,20 +125,20 @@ export class TTSRenderer {
 
   /**
    * Resolves the actual voice clip for a (character, emotion) pair.
-   * Expresso assignments use the variant matching the segment's
+   * Emotional assignments pick the variant matching the segment's
    * emotion (with neutral fallback). Donation assignments use the
    * single clip regardless of emotion — they have no emotional
    * variants by design.
    */
   private resolveClip(assignment: VoiceAssignment, emotion: Emotion): VoiceClip {
-    if (assignment.kind === 'expresso') {
-      const speaker = findExpressoSpeaker(assignment.speakerId);
+    if (assignment.kind === 'emotional') {
+      const speaker = findEmotionalSpeaker(assignment.speakerId);
       if (!speaker) {
         throw new Error(
-          `Unknown Expresso speaker in voice map: ${assignment.speakerId}`,
+          `Unknown emotional speaker in voice map: ${assignment.speakerId}`,
         );
       }
-      return expressoVariantClip(speaker, emotion);
+      return emotionalVariantClip(speaker, emotion);
     }
     const voice = findDonationVoice(assignment.voiceId);
     if (!voice) {

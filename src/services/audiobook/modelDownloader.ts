@@ -79,14 +79,21 @@ export class ModelDownloader {
     return localPath;
   }
 
-  /** Returns the local path to a voice clip, downloading once. */
+  /**
+   * Returns the local path to a voice clip, downloading once.
+   * Clips can come from the default kyutai/tts-voices repo or
+   * from a different host (e.g. voice-zero on GitHub) via
+   * `clip.baseUrl`.
+   */
   async ensureVoiceClip(clip: VoiceClip): Promise<string> {
+    const base = clip.baseUrl ?? this.voiceRepo;
+    const sourceTag = clip.baseUrl ? hashString(clip.baseUrl) : 'kyutai';
     const safeName = clip.path.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const localPath = `${this.cacheDir}/voices/${safeName}`;
+    const localPath = `${this.cacheDir}/voices/${sourceTag}_${safeName}`;
     if (!NativeFile.exists(localPath)) {
       await this.ensureDir(`${this.cacheDir}/voices`);
       await NativeFile.downloadFile(
-        `${this.voiceRepo}/${clip.path}`,
+        `${base}/${clip.path}`,
         localPath,
         'GET',
         {},
@@ -101,3 +108,14 @@ export class ModelDownloader {
     }
   }
 }
+
+/* eslint-disable no-bitwise */
+const hashString = (s: string): string => {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h << 5) - h + s.charCodeAt(i);
+    h = h & h;
+  }
+  return Math.abs(h).toString(36);
+};
+/* eslint-enable no-bitwise */

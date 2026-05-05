@@ -25,7 +25,7 @@ export class AudiobookPipeline {
     this.config = config;
     this.annotator = new LLMAnnotator(config.llm);
     this.assigner = new VoiceAssigner({
-      expressoMainCharacterSlots: config.tts.expressoMainCharacterSlots,
+      mainCharacterEmotionalSlots: config.tts.mainCharacterEmotionalSlots,
     });
     this.renderer = new TTSRenderer(
       config.tts,

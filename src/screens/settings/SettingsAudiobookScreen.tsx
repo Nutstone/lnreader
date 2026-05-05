@@ -31,7 +31,7 @@ const AudiobookSettingsScreen = ({
     model,
     ttsPrecision,
     lookaheadSegments,
-    expressoMainCharacterSlots,
+    mainCharacterEmotionalSlots,
     setAudiobookSettings,
   } = useAudiobookSettings();
 
@@ -42,7 +42,7 @@ const AudiobookSettingsScreen = ({
     String(lookaheadSegments),
   );
   const [slotsInput, setSlotsInput] = useState(
-    String(expressoMainCharacterSlots),
+    String(mainCharacterEmotionalSlots),
   );
 
   return (
@@ -205,7 +205,7 @@ const AudiobookSettingsScreen = ({
 
         <List.Section>
           <List.SubHeader theme={theme}>
-            Expresso main-character slots (max 3)
+            Main-character emotional voice slots
           </List.SubHeader>
           <View style={styles.inputContainer}>
             <TextInput
@@ -214,8 +214,10 @@ const AudiobookSettingsScreen = ({
               onChangeText={setSlotsInput}
               onBlur={() => {
                 const n = parseInt(slotsInput, 10);
-                if (!isNaN(n) && n >= 0 && n <= 3) {
-                  setAudiobookSettings({ expressoMainCharacterSlots: n });
+                if (!isNaN(n) && n >= 0) {
+                  setAudiobookSettings({
+                    mainCharacterEmotionalSlots: n,
+                  });
                 }
               }}
               keyboardType="numeric"
