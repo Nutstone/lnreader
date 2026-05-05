@@ -146,3 +146,18 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+def kokoroBundle = file("src/main/assets/audiobook/kokoro-js.bundle.js")
+def kokoroBundleScript = file("$rootDir/../scripts/audiobook-bundle-kokoro.mjs")
+
+tasks.register("bundleKokoroJs", Exec) {
+    inputs.file(kokoroBundleScript)
+    inputs.file(file("$rootDir/../node_modules/kokoro-js/dist/kokoro.js"))
+    outputs.file(kokoroBundle)
+    workingDir = file("$rootDir/..")
+    commandLine 'node', kokoroBundleScript.absolutePath
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("bundleKokoroJs")
+}

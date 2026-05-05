@@ -54,6 +54,9 @@ jobs:
             --myanimelist-client-id "${{ vars.MYANIMELIST_CLIENT_ID }}" \
             --anilist-client-id "${{ vars.ANILIST_CLIENT_ID }}"
 
+      - name: Bundle Kokoro for WebView host
+        run: pnpm bundle:audiobook
+
       - name: Build Android Release with Rock
         uses: callstackincubator/android@v3
         env:
