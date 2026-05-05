@@ -1,6 +1,5 @@
 /**
- * LLMAnnotator integration tests with mocked fetch.
- * Validates request shape against Anthropic + Ollama APIs.
+ * LLMAnnotator request-shape tests against Anthropic's documented API.
  */
 
 import { LLMAnnotator } from '../llmAnnotator';
@@ -23,12 +22,12 @@ function mockResponse(body: unknown, status = 200, ok = true) {
   } as unknown as Response;
 }
 
-describe('LLMAnnotator — Anthropic', () => {
+describe('LLMAnnotator', () => {
   beforeEach(() => {
     mockFetch.mockReset();
   });
 
-  it('sends correctly-shaped request with cache_control', async () => {
+  it('sends correctly-shaped Anthropic request', async () => {
     mockFetch.mockResolvedValue(
       mockResponse({
         content: [
@@ -50,19 +49,10 @@ describe('LLMAnnotator — Anthropic', () => {
             },
           },
         ],
-        usage: {
-          input_tokens: 1234,
-          cache_read_input_tokens: 1100,
-          output_tokens: 567,
-        },
       }),
     );
 
-    const annotator = new LLMAnnotator({
-      provider: 'anthropic',
-      apiKey: 'sk-test',
-      enablePromptCaching: true,
-    });
+    const annotator = new LLMAnnotator({ apiKey: 'sk-test' });
     const glossary = await annotator.buildGlossary('test', ['ch1', 'ch2']);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -75,7 +65,6 @@ describe('LLMAnnotator — Anthropic', () => {
 
     const body = JSON.parse(init?.body as string);
     expect(body.model).toBe('claude-sonnet-4-6');
-    expect(body.system[0].cache_control).toEqual({ type: 'ephemeral' });
     expect(body.tools[0].name).toBe('emit_glossary');
     expect(body.tool_choice).toEqual({ type: 'tool', name: 'emit_glossary' });
 
@@ -84,39 +73,27 @@ describe('LLMAnnotator — Anthropic', () => {
     expect(glossary.narratorGender).toBe('male');
   });
 
-  it('disables cache when enablePromptCaching=false', async () => {
-    mockFetch.mockResolvedValue(
-      mockResponse({
-        content: [{ type: 'tool_use', input: { narratorGender: 'male', narratorVoiceHints: [], characters: [] } }],
-        usage: { input_tokens: 1, output_tokens: 1 },
-      }),
-    );
-
-    const annotator = new LLMAnnotator({
-      provider: 'anthropic',
-      apiKey: 'sk-test',
-      enablePromptCaching: false,
-    });
-    await annotator.buildGlossary('test', ['ch1']);
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
-    expect(body.system[0].cache_control).toBeUndefined();
-  });
-
   it('retries on 429 with backoff', async () => {
     mockFetch
-      .mockResolvedValueOnce(mockResponse({ error: { message: 'rate limit' } }, 429, false))
+      .mockResolvedValueOnce(
+        mockResponse({ error: { message: 'rate limit' } }, 429, false),
+      )
       .mockResolvedValueOnce(
         mockResponse({
-          content: [{ type: 'tool_use', input: { narratorGender: 'male', narratorVoiceHints: [], characters: [] } }],
-          usage: { input_tokens: 1, output_tokens: 1 },
+          content: [
+            {
+              type: 'tool_use',
+              input: {
+                narratorGender: 'male',
+                narratorVoiceHints: [],
+                characters: [],
+              },
+            },
+          ],
         }),
       );
 
-    const annotator = new LLMAnnotator({
-      provider: 'anthropic',
-      apiKey: 'sk-test',
-    });
+    const annotator = new LLMAnnotator({ apiKey: 'sk-test' });
     const result = await annotator.buildGlossary('test', ['ch']);
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(result.characters).toEqual([]);
@@ -127,14 +104,16 @@ describe('LLMAnnotator — Anthropic', () => {
       mockResponse({ error: { message: 'unauthorised' } }, 401, false),
     );
 
-    const annotator = new LLMAnnotator({ provider: 'anthropic', apiKey: 'bad' });
+    const annotator = new LLMAnnotator({ apiKey: 'bad' });
     await expect(annotator.buildGlossary('test', ['ch'])).rejects.toThrow();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('throws on missing API key', async () => {
-    const annotator = new LLMAnnotator({ provider: 'anthropic' });
-    await expect(annotator.buildGlossary('test', ['ch'])).rejects.toThrow(/Claude API key/);
+    const annotator = new LLMAnnotator({});
+    await expect(annotator.buildGlossary('test', ['ch'])).rejects.toThrow(
+      /Claude API key/,
+    );
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -158,11 +137,10 @@ describe('LLMAnnotator — Anthropic', () => {
             },
           },
         ],
-        usage: { input_tokens: 100, output_tokens: 50 },
       }),
     );
 
-    const annotator = new LLMAnnotator({ provider: 'anthropic', apiKey: 'sk' });
+    const annotator = new LLMAnnotator({ apiKey: 'sk' });
     const annotation = await annotator.annotateChapter(
       0,
       '/novel/foo/chapter-1',
@@ -187,85 +165,5 @@ describe('LLMAnnotator — Anthropic', () => {
       isDialogue: true,
       pauseBefore: 'short',
     });
-    expect(annotation.usage?.inputTokens).toBe(100);
-  });
-
-  it('falls back to JSON-parse when no tool_use block', async () => {
-    mockFetch.mockResolvedValue(
-      mockResponse({
-        content: [
-          {
-            type: 'text',
-            text: '```json\n{"narratorGender":"female","narratorVoiceHints":["calm"],"characters":[]}\n```',
-          },
-        ],
-        usage: { input_tokens: 1, output_tokens: 1 },
-      }),
-    );
-
-    const annotator = new LLMAnnotator({ provider: 'anthropic', apiKey: 'sk' });
-    const glossary = await annotator.buildGlossary('test', ['ch']);
-    expect(glossary.narratorGender).toBe('female');
-  });
-});
-
-describe('LLMAnnotator — Ollama', () => {
-  beforeEach(() => {
-    mockFetch.mockReset();
-  });
-
-  it('sends correctly-shaped request', async () => {
-    mockFetch.mockResolvedValue(
-      mockResponse({
-        message: {
-          content: JSON.stringify({
-            narratorGender: 'male',
-            narratorVoiceHints: [],
-            characters: [],
-          }),
-        },
-        prompt_eval_count: 100,
-        eval_count: 50,
-      }),
-    );
-
-    const annotator = new LLMAnnotator({
-      provider: 'ollama',
-      baseUrl: 'http://192.168.1.100:11434',
-      model: 'llama3.1:70b',
-    });
-    await annotator.buildGlossary('test', ['ch1']);
-
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [url, init] = mockFetch.mock.calls[0];
-    expect(url).toBe('http://192.168.1.100:11434/api/chat');
-
-    const body = JSON.parse(init?.body as string);
-    expect(body.model).toBe('llama3.1:70b');
-    expect(body.format).toBe('json');
-    expect(body.keep_alive).toBe('1h');
-    expect(body.messages).toHaveLength(2);
-    expect(body.messages[0].role).toBe('system');
-    expect(body.messages[1].role).toBe('user');
-  });
-
-  it('does not require API key', async () => {
-    mockFetch.mockResolvedValue(
-      mockResponse({
-        message: {
-          content: JSON.stringify({
-            narratorGender: 'male',
-            narratorVoiceHints: [],
-            characters: [],
-          }),
-        },
-        prompt_eval_count: 1,
-        eval_count: 1,
-      }),
-    );
-
-    const annotator = new LLMAnnotator({ provider: 'ollama' });
-    const result = await annotator.buildGlossary('test', ['ch']);
-    expect(result).toBeDefined();
   });
 });

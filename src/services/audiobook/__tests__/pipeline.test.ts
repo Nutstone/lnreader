@@ -1,8 +1,5 @@
 /**
- * AudiobookPipeline integration tests.
- *
- * Mocks NativeFile (in-memory FS) and LLMAnnotator. Verifies cache
- * behaviour, glossary discovery, and chapter-key indexing.
+ * AudiobookPipeline integration tests with in-memory FS + mocked annotator.
  */
 
 import { AudiobookPipeline } from '../pipeline';
@@ -11,8 +8,6 @@ import { VoiceCaster } from '../voiceCaster';
 import { AudioCache } from '../audioCache';
 import { CharacterGlossary } from '../types';
 
-// In-memory NativeFile mock. The variable names must start with "mock"
-// for Jest's hoisted-mock guardrail to allow them inside the factory.
 const mockFs = new Map<string, string>();
 const mockDirs = new Set<string>();
 
@@ -36,28 +31,7 @@ jest.mock('@specs/NativeFile', () => ({
     mkdir: (p: string) => {
       mockDirs.add(p);
     },
-    readDir: (p: string) => {
-      const out: { name: string; path: string; isDirectory: boolean }[] = [];
-      for (const k of mockFs.keys()) {
-        if (k.startsWith(p + '/') && !k.slice(p.length + 1).includes('/')) {
-          out.push({
-            name: k.slice(p.length + 1),
-            path: k,
-            isDirectory: false,
-          });
-        }
-      }
-      for (const k of mockDirs) {
-        if (k.startsWith(p + '/') && !k.slice(p.length + 1).includes('/')) {
-          out.push({
-            name: k.slice(p.length + 1),
-            path: k,
-            isDirectory: true,
-          });
-        }
-      }
-      return out;
-    },
+    readDir: () => [],
     getConstants: () => ({
       ExternalDirectoryPath: '/data/test',
       ExternalCachesDirectoryPath: '/data/cache',
@@ -111,196 +85,91 @@ function mockAnnotator() {
       },
     ],
     createdAt: new Date().toISOString(),
-    usage: { inputTokens: 100, outputTokens: 50, cachedInputTokens: 0 },
   }));
-  const extendGlossary = jest.fn(async () => []);
-  return {
-    buildGlossary,
-    annotateChapter,
-    extendGlossary,
-  } as unknown as LLMAnnotator;
+  return { buildGlossary, annotateChapter } as unknown as LLMAnnotator;
 }
 
+const baseConfig = {
+  novelId: 'novel-1',
+  llm: { apiKey: 'sk' },
+  tts: {
+    playbackSpeed: 1,
+    emotionShaping: true,
+    lookaheadSegments: 3,
+    dtype: 'q8' as const,
+  },
+};
+
 describe('AudiobookPipeline', () => {
-  it('builds glossary, voice map, and per-chapter annotations', async () => {
+  it('annotateOne builds glossary on first call and reuses it after', async () => {
     const annotator = mockAnnotator();
-    const pipeline = new AudiobookPipeline(
-      {
-        novelId: 'novel-1',
-        llm: { provider: 'anthropic', apiKey: 'sk' },
-        tts: { playbackSpeed: 1, emotionShaping: true, lookaheadSegments: 3 },
-      },
-      { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
-    );
+    const pipeline = new AudiobookPipeline(baseConfig, {
+      annotator,
+      caster: new VoiceCaster(),
+      cache: new AudioCache(),
+    });
 
-    await pipeline.processChapters([
-      { id: 1, path: '/n/1', rawText: 'first' },
-      { id: 2, path: '/n/2', rawText: 'second' },
-    ]);
+    const ann1 = await pipeline.annotateOne({
+      id: 1,
+      path: '/n/1',
+      rawText: 'first',
+    });
+    expect(ann1.segments).toHaveLength(1);
+    expect((annotator.buildGlossary as jest.Mock).mock.calls).toHaveLength(1);
+    expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(1);
 
-    const g = await pipeline.getGlossary();
-    expect(g?.characters[0].name).toBe('Rimuru');
+    // Second chapter reuses the existing glossary.
+    await pipeline.annotateOne({ id: 2, path: '/n/2', rawText: 'second' });
+    expect((annotator.buildGlossary as jest.Mock).mock.calls).toHaveLength(1);
+    expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
 
+    // Voice map persisted.
     const v = await pipeline.getVoiceMap();
     expect(v?.mappings.Rimuru).toBeDefined();
     expect(v?.mappings.narrator).toBeDefined();
-
-    expect((annotator.buildGlossary as jest.Mock).mock.calls).toHaveLength(1);
-    expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
   });
 
-  it('reuses cached glossary on second run', async () => {
+  it('annotateOne returns cached annotation on second call for the same chapter', async () => {
     const annotator = mockAnnotator();
     const pipeline = new AudiobookPipeline(
-      {
-        novelId: 'novel-2',
-        llm: { provider: 'anthropic', apiKey: 'sk' },
-        tts: { playbackSpeed: 1, emotionShaping: true, lookaheadSegments: 3 },
-      },
+      { ...baseConfig, novelId: 'novel-2' },
       { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
     );
-    await pipeline.processChapters([
-      { id: 1, path: '/n/1', rawText: 'a' },
-      { id: 2, path: '/n/2', rawText: 'b' },
-    ]);
-    expect((annotator.buildGlossary as jest.Mock).mock.calls).toHaveLength(1);
-    expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
-
-    await pipeline.processChapters([
-      { id: 1, path: '/n/1', rawText: 'a' },
-      { id: 2, path: '/n/2', rawText: 'b' },
-    ]);
-    // No new LLM calls — everything cached.
-    expect((annotator.buildGlossary as jest.Mock).mock.calls).toHaveLength(1);
-    expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
+    await pipeline.annotateOne({ id: 1, path: '/n/1', rawText: 'a' });
+    await pipeline.annotateOne({ id: 1, path: '/n/1', rawText: 'a' });
+    expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(1);
   });
 
   it('keys annotations by path-hash, not chapter index', async () => {
     const annotator = mockAnnotator();
     const pipeline = new AudiobookPipeline(
-      {
-        novelId: 'novel-3',
-        llm: { provider: 'anthropic', apiKey: 'sk' },
-        tts: { playbackSpeed: 1, emotionShaping: true, lookaheadSegments: 3 },
-      },
+      { ...baseConfig, novelId: 'novel-3' },
       { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
     );
-    await pipeline.processChapters([
-      { id: 1, path: '/n/foo', rawText: 'a' },
-    ]);
-    // Plugin re-orders: chapter at index 0 is now /n/foo (same path) but
-    // shifted by a new chapter inserted before. Path-hash means cache hit.
-    await pipeline.processChapters([
-      { id: 99, path: '/n/foo', rawText: 'a' },
-    ]);
+    await pipeline.annotateOne({ id: 1, path: '/n/foo', rawText: 'a' });
+    // Same path with a different in-app id: cache hit.
+    await pipeline.annotateOne({ id: 99, path: '/n/foo', rawText: 'a' });
     expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(1);
 
     // Different path → new annotation.
-    await pipeline.processChapters([
-      { id: 99, path: '/n/foo-different', rawText: 'a' },
-    ]);
+    await pipeline.annotateOne({
+      id: 99,
+      path: '/n/foo-different',
+      rawText: 'a',
+    });
     expect((annotator.annotateChapter as jest.Mock).mock.calls).toHaveLength(2);
   });
 
-  it('discovers new speakers mid-novel and extends glossary', async () => {
-    const annotator = mockAnnotator();
-    // Annotate chapter 1 with 4 unknown speakers — triggers discovery.
-    (annotator.annotateChapter as jest.Mock).mockImplementationOnce(
-      async (chapterId: number) => ({
-        chapterId,
-        chapterKey: 'k_disc_' + chapterId,
-        segments: [
-          { text: '"Hi"', speaker: 'NewA', emotion: 'neutral', intensity: 2, isDialogue: true, pauseBefore: 'short' },
-          { text: '"Yo"', speaker: 'NewB', emotion: 'neutral', intensity: 2, isDialogue: true, pauseBefore: 'short' },
-          { text: '"Hey"', speaker: 'NewC', emotion: 'neutral', intensity: 2, isDialogue: true, pauseBefore: 'short' },
-          { text: '"Hello"', speaker: 'Rimuru', emotion: 'neutral', intensity: 2, isDialogue: true, pauseBefore: 'short' },
-        ],
-        createdAt: '',
-        usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
-      }),
-    );
-    (annotator.extendGlossary as jest.Mock).mockResolvedValueOnce([
-      {
-        name: 'NewA',
-        aliases: [],
-        gender: 'male',
-        personality: ['warrior'],
-        voiceHints: [],
-        description: '',
-      },
-      {
-        name: 'NewB',
-        aliases: [],
-        gender: 'female',
-        personality: ['gentle'],
-        voiceHints: [],
-        description: '',
-      },
-      {
-        name: 'NewC',
-        aliases: [],
-        gender: 'neutral',
-        personality: ['child'],
-        voiceHints: [],
-        description: '',
-      },
-    ]);
-
-    const pipeline = new AudiobookPipeline(
-      {
-        novelId: 'novel-4',
-        llm: { provider: 'anthropic', apiKey: 'sk' },
-        tts: { playbackSpeed: 1, emotionShaping: true, lookaheadSegments: 3 },
-      },
-      { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
-    );
-
-    await pipeline.processChapters([{ id: 1, path: '/n/1', rawText: 'x' }]);
-
-    expect((annotator.extendGlossary as jest.Mock).mock.calls).toHaveLength(1);
-    const updatedGlossary = await pipeline.getGlossary();
-    expect(updatedGlossary?.characters.map(c => c.name)).toEqual(
-      expect.arrayContaining(['Rimuru', 'NewA', 'NewB', 'NewC']),
-    );
-    const updatedVm = await pipeline.getVoiceMap();
-    expect(Object.keys(updatedVm?.mappings ?? {})).toEqual(
-      expect.arrayContaining(['NewA', 'NewB', 'NewC']),
-    );
-  });
-
-  it('estimateCost is free for ollama provider', async () => {
+  it('clearCache wipes all per-novel artefacts', async () => {
     const annotator = mockAnnotator();
     const pipeline = new AudiobookPipeline(
-      {
-        novelId: 'novel-5',
-        llm: { provider: 'ollama', baseUrl: 'http://localhost:11434' },
-        tts: { playbackSpeed: 1, emotionShaping: true, lookaheadSegments: 3 },
-      },
+      { ...baseConfig, novelId: 'novel-4' },
       { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
     );
-    const est = await pipeline.estimateCost([
-      { id: 1, path: '/n/1', rawText: 'word '.repeat(1000) },
-    ]);
-    expect(est.isFree).toBe(true);
-    expect(est.costUSDWithCache).toBe(0);
-  });
-
-  it('estimateCost gives a non-zero cost for Anthropic', async () => {
-    const annotator = mockAnnotator();
-    const pipeline = new AudiobookPipeline(
-      {
-        novelId: 'novel-6',
-        llm: { provider: 'anthropic', apiKey: 'sk' },
-        tts: { playbackSpeed: 1, emotionShaping: true, lookaheadSegments: 3 },
-      },
-      { annotator, caster: new VoiceCaster(), cache: new AudioCache() },
-    );
-    const est = await pipeline.estimateCost([
-      { id: 1, path: '/n/1', rawText: 'word '.repeat(2000) },
-      { id: 2, path: '/n/2', rawText: 'word '.repeat(2000) },
-    ]);
-    expect(est.isFree).toBe(false);
-    expect(est.costUSDWithCache).toBeGreaterThan(0);
-    expect(est.costUSDWithCache).toBeLessThan(est.costUSDWithoutCache);
+    await pipeline.annotateOne({ id: 1, path: '/n/1', rawText: 'a' });
+    expect(await pipeline.getGlossary()).not.toBeNull();
+    await pipeline.clearCache();
+    expect(await pipeline.getGlossary()).toBeNull();
+    expect(await pipeline.getVoiceMap()).toBeNull();
   });
 });

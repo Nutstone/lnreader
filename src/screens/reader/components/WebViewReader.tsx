@@ -124,6 +124,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
   // notification metadata, and auto-advance from a single subscription.
   useEffect(() => {
     let lastSegmentIndex = -1;
+    let reachedEnd = false;
     const unsubscribe = audiobookPlayer.subscribe(state => {
       const isActive =
         state.status === 'playing' ||
@@ -142,6 +143,12 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
         state.currentText
       ) {
         lastSegmentIndex = state.segmentIndex;
+        // Detect "reached the last segment" — only auto-advance after
+        // we've actually played through to the end. Manual stops won't
+        // trigger this.
+        if (state.segmentIndex >= state.totalSegments - 1) {
+          reachedEnd = true;
+        }
         updateTTSProgress(state.segmentIndex, state.totalSegments);
         updateTTSNotification({
           novelName: novel?.name || 'Unknown',
@@ -158,12 +165,10 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
         );
       }
 
-      if (state.status === 'idle' && lastSegmentIndex >= 0) {
-        // Just finished.
+      if (state.status === 'idle' && reachedEnd) {
+        reachedEnd = false;
         lastSegmentIndex = -1;
-        const autoAdvance =
-          readerSettingsRef.current.audiobook?.autoPageAdvance === true ||
-          audiobookSettings.autoAdvanceChapter === true;
+        const autoAdvance = audiobookSettings.autoAdvanceChapter === true;
         if (autoAdvance && nextChapter) {
           autoStartAudiobookRef.current = true;
           navigateChapter('NEXT');
@@ -593,27 +598,18 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
           case 'audiobook-start':
             if (event.data && typeof event.data === 'string') {
               isAudiobookActiveRef.current = true;
-              showTTSNotification({
-                novelName: novel?.name || 'Unknown',
-                chapterName: chapter.name,
-                coverUri: novel?.cover || '',
-                isPlaying: true,
-              });
               audiobookPlayer.playChapter(
                 {
                   novelId: String(novel?.id ?? ''),
                   llm: {
-                    provider: audiobookSettings.llmProvider,
                     apiKey: audiobookSettings.apiKey,
-                    baseUrl: audiobookSettings.baseUrl,
                     model: audiobookSettings.model,
-                    enablePromptCaching:
-                      audiobookSettings.enablePromptCaching,
                   },
                   tts: {
                     playbackSpeed: 1.0,
                     emotionShaping: audiobookSettings.emotionShaping,
                     lookaheadSegments: audiobookSettings.lookaheadSegments,
+                    dtype: audiobookSettings.ttsDtype,
                   },
                 },
                 {
