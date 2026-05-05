@@ -13,7 +13,6 @@ export {
 export { LLMAnnotator } from './llmAnnotator';
 export { VoiceCaster, blendString, matchArchetype } from './voiceCaster';
 export { AudioCache } from './audioCache';
-export { sanitiseChapter } from './chapterSanitiser';
 export { VOICE_CATALOG, voicesForArchetype, findVoice } from './voiceCatalog';
 export type { VoiceCatalogEntry } from './voiceCatalog';
 export {

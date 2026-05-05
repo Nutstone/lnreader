@@ -76,6 +76,11 @@ Also determine the narrator's apparent gender and 2-4 voice hints for the narrat
 
 Order characters by frequency of appearance (most frequent first). Include only named characters who appear meaningfully — skip background mentions and one-line walk-ons.
 
+Input may contain noise: raw HTML tags, HTML entities, translator
+notes ("[T/N: ...]"), author's notes, footnotes ("[1]"), and
+translator boilerplate (Patreon, donate, "next chapter"). Ignore all
+of it when extracting characters.
+
 Respond by calling the emit_glossary tool with structured arguments. Do NOT respond with prose.`;
 
 export interface BuildGlossaryPromptArgs {
