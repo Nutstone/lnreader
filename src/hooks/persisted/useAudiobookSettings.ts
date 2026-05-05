@@ -20,7 +20,7 @@ const initialAudiobookSettings: AudiobookSettings = {
   baseUrl: '',
   model: '',
   ttsPrecision: 'q8',
-  lookaheadSegments: 2,
+  lookaheadSegments: 4,
   sampleRate: 24000,
   mainCharacterEmotionalSlots: 10,
 };

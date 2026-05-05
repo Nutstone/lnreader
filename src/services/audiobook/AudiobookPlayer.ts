@@ -55,6 +55,12 @@ export class AudiobookPlayer {
       );
     }
 
+    // Switching novels — release the previous model session before
+    // allocating a fresh pipeline. Keeps onnx memory bounded.
+    if (this.pipeline) {
+      void this.pipeline.disposeRenderer();
+    }
+
     const config: AudiobookConfig = {
       llm: {
         provider: settings.llmProvider || 'anthropic',
@@ -64,7 +70,7 @@ export class AudiobookPlayer {
       },
       tts: {
         precision: settings.ttsPrecision || 'q8',
-        lookaheadSegments: settings.lookaheadSegments ?? 2,
+        lookaheadSegments: settings.lookaheadSegments ?? 4,
         sampleRate: settings.sampleRate || 24000,
         mainCharacterEmotionalSlots:
           settings.mainCharacterEmotionalSlots ?? 10,
@@ -76,6 +82,19 @@ export class AudiobookPlayer {
     this.pipeline = new AudiobookPipeline(config);
     this.currentNovelId = novelId;
     return this.pipeline;
+  }
+
+  /**
+   * Tear down the player completely: stop playback and release the
+   * TTS model session. Call when exiting the reader for the novel.
+   */
+  async destroy(): Promise<void> {
+    await this.stop();
+    if (this.pipeline) {
+      await this.pipeline.disposeRenderer();
+      this.pipeline = null;
+      this.currentNovelId = '';
+    }
   }
 
   async startChapter(

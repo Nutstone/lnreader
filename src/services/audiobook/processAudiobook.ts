@@ -39,7 +39,7 @@ export const processAudiobook = async (
       },
       tts: {
         precision: settings?.ttsPrecision ?? 'q8',
-        lookaheadSegments: settings?.lookaheadSegments ?? 2,
+        lookaheadSegments: settings?.lookaheadSegments ?? 4,
         sampleRate: settings?.sampleRate ?? 24000,
         mainCharacterEmotionalSlots:
           settings?.mainCharacterEmotionalSlots ?? 10,

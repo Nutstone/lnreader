@@ -9,6 +9,8 @@ import {
 } from './types';
 import { PocketTTSAdapter } from './pocketTTSAdapter';
 import { ModelDownloader } from './modelDownloader';
+import { AudioCache } from './audioCache';
+import { postProcess } from './audioPostProcessor';
 import {
   emotionalVariantClip,
   findDonationVoice,
@@ -25,6 +27,7 @@ export class TTSRenderer {
   private config: TTSConfig;
   private adapter: PocketTTSAdapter;
   private downloader: ModelDownloader;
+  private audioCache: AudioCache;
   private initialized = false;
 
   constructor(config: TTSConfig, cacheDir: string) {
@@ -34,6 +37,7 @@ export class TTSRenderer {
       cacheDir,
       modelRepoUrl: config.modelRepoUrl,
     });
+    this.audioCache = new AudioCache(`${cacheDir}/audio`);
   }
 
   async initialize(): Promise<void> {
@@ -51,6 +55,44 @@ export class TTSRenderer {
     this.initialized = false;
   }
 
+  /**
+   * Downloads every voice clip referenced in the chapter and warms
+   * the speaker-state cache before rendering starts. With ~10 main
+   * characters per chapter that's ~10 first-line stutters avoided.
+   */
+  async prefetchForChapter(
+    annotation: ChapterAnnotation,
+    voiceMap: VoiceMap,
+  ): Promise<void> {
+    if (!this.initialized) {
+      throw new Error('TTSRenderer not initialized. Call initialize() first.');
+    }
+
+    const seen = new Set<string>();
+    const clips: VoiceClip[] = [];
+    for (const segment of annotation.segments) {
+      const assignment =
+        voiceMap.mappings[segment.speaker] ?? voiceMap.mappings.narrator;
+      if (!assignment) {
+        continue;
+      }
+      const clip = this.resolveClip(assignment, segment.emotion);
+      const key = `${clip.baseUrl ?? ''}|${clip.path}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      clips.push(clip);
+    }
+
+    await Promise.all(
+      clips.map(async clip => {
+        const localPath = await this.downloader.ensureVoiceClip(clip);
+        await this.adapter.loadSpeakerState(localPath);
+      }),
+    );
+  }
+
   async renderSegment(
     text: string,
     assignment: VoiceAssignment,
@@ -62,15 +104,31 @@ export class TTSRenderer {
 
     const clip = this.resolveClip(assignment, emotion);
     const clipPath = await this.downloader.ensureVoiceClip(clip);
+    const cacheKey = AudioCache.keyFor(text, clipPath);
+
+    const cached = this.audioCache.get(cacheKey);
+    if (cached) {
+      return {
+        pauseBeforeMs: 0,
+        audioData: cached,
+        durationMs: 0,
+        speaker: '',
+        text,
+      };
+    }
+
     const speakerState = await this.adapter.loadSpeakerState(clipPath);
     const { samples, sampleRate } = await this.adapter.synthesize(
       text,
       speakerState,
     );
+    const processed = postProcess(samples);
 
-    const wavBytes = encodeWav(samples, sampleRate);
+    const wavBytes = encodeWav(processed, sampleRate);
     const audioData = arrayBufferToBase64(wavBytes);
-    const durationMs = (samples.length / sampleRate) * 1000;
+    const durationMs = (processed.length / sampleRate) * 1000;
+
+    this.audioCache.set(cacheKey, audioData);
 
     return {
       pauseBeforeMs: 0,
@@ -121,6 +179,11 @@ export class TTSRenderer {
     while (renderQueue.length > 0) {
       yield await renderQueue.shift()!;
     }
+  }
+
+  /** Wipe the audio cache (e.g. after a voice override). */
+  clearAudioCache(): void {
+    this.audioCache.clear();
   }
 
   /**

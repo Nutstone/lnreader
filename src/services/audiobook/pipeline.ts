@@ -156,11 +156,19 @@ export class AudiobookPipeline {
     }
 
     await this.renderer.initialize();
-    try {
-      yield* this.renderer.streamChapterAudio(annotation, voiceMap);
-    } finally {
-      await this.renderer.dispose();
-    }
+    // Pre-warm voice clips + speaker states for every speaker that
+    // appears in this chapter so the first segment of each new
+    // character doesn't pay for download + state load mid-stream.
+    await this.renderer.prefetchForChapter(annotation, voiceMap);
+    // The renderer is intentionally NOT disposed here — model load
+    // is expensive and mid-novel pause/resume should keep it warm.
+    // Call `disposeRenderer()` when switching novels or tearing down.
+    yield* this.renderer.streamChapterAudio(annotation, voiceMap);
+  }
+
+  /** Release the on-device TTS model. Call when switching novels. */
+  async disposeRenderer(): Promise<void> {
+    await this.renderer.dispose();
   }
 
   async overrideVoice(

@@ -8,6 +8,7 @@ Analyze the text and identify all named characters. For each character, determin
 3. Their gender (male, female, or neutral if unclear)
 4. Personality keywords (2-5 words like: warrior, gentle, villainous, cheerful, stoic, wise, mischievous, noble, shy, aggressive, cold, warm, cunning, innocent, mature)
 5. A brief description (1 sentence)
+6. An importance score from 0 to 100 reflecting how central they are to the story
 
 Also determine the narrator's apparent gender based on writing style and perspective.
 
@@ -19,7 +20,8 @@ Respond with ONLY valid JSON matching this exact schema:
       "aliases": ["string"],
       "gender": "male" | "female" | "neutral",
       "personality": ["string"],
-      "description": "string"
+      "description": "string",
+      "importance": number
     }
   ],
   "narratorGender": "male" | "female"
@@ -30,7 +32,13 @@ Guidelines:
 - Use the most common name form (e.g., "Rimuru" not "Rimuru Tempest" unless the full name is used more often)
 - Personality keywords should reflect how they SOUND when speaking, not just their role
 - If gender is truly ambiguous, use "neutral"
-- Order characters by frequency of appearance (most frequent first)`;
+- Order characters by importance (most central first)
+- Importance scoring:
+  - 90-100: protagonist or co-protagonist, drives the story
+  - 70-89: major recurring character, frequent dialogue
+  - 40-69: supporting character, occasional dialogue
+  - 1-39: minor or one-off character
+  - The TTS engine reserves richer emotional voices for high-importance characters, so be discriminating.`;
 
 export function buildGlossaryPrompt(chapterTexts: string[]): LLMMessage {
   const combined = chapterTexts
