@@ -32,6 +32,9 @@ import { ThemeColors } from '@theme/types';
 import { SafeAreaView } from '@components';
 import { useNovelContext } from './NovelContext';
 import { LegendListRef } from '@legendapp/list';
+import ServiceManager from '@services/ServiceManager';
+import { AudiobookPipeline } from '@services/audiobook';
+import { showToast } from '@utils/showToast';
 
 const Novel = ({ route, navigation }: NovelScreenProps) => {
   const {
@@ -117,6 +120,52 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
     setTrue: openDlChapterModal,
     setFalse: closeDlChapterModal,
   } = useBoolean();
+
+  const startAudiobookBatch = useCallback(
+    (amount: number | 'all' | 'unread') => {
+      if (!novel) return;
+      let target: ChapterInfo[];
+      if (amount === 'all') {
+        target = chapters;
+      } else if (amount === 'unread') {
+        target = chapters.filter(c => c.unread);
+      } else {
+        target = chapters.slice(0, amount);
+      }
+      if (target.length === 0) {
+        showToast('No chapters to process.');
+        return;
+      }
+      ServiceManager.manager.addTask({
+        name: 'AUDIOBOOK_PIPELINE',
+        data: {
+          novelId: novel.id,
+          novelName: novel.name,
+          pluginId: novel.pluginId,
+          chapterIds: target.map(c => c.id),
+          chapterPaths: target.map(c => c.path),
+        },
+      });
+      showToast(`Audiobook queued for ${target.length} chapters.`);
+    },
+    [chapters, novel],
+  );
+
+  const clearAudiobookCache = useCallback(async () => {
+    if (!novel) return;
+    const pipeline = new AudiobookPipeline({
+      novelId: String(novel.id),
+      llm: {},
+      tts: {
+        playbackSpeed: 1,
+        emotionShaping: false,
+        lookaheadSegments: 1,
+        dtype: 'q8',
+      },
+    });
+    await pipeline.clearCache();
+    showToast('Audiobook cache cleared for this novel.');
+  }, [novel]);
 
   const actions = useMemo(() => {
     const list: { icon: MaterialDesignIconName; onPress: () => void }[] = [];
@@ -289,6 +338,8 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
               isLocal={novel?.isLocal ?? route.params?.isLocal ?? false}
               goBack={navigation.goBack}
               headerOpacity={headerOpacity}
+              audiobookChapters={startAudiobookBatch}
+              clearAudiobookCache={clearAudiobookCache}
             />
           ) : (
             <Animated.View

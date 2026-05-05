@@ -98,6 +98,24 @@ export class VoiceCaster {
     };
   }
 
+  /**
+   * Add new characters to an existing voice map without disturbing
+   * existing entries. Used for incremental glossary discovery.
+   */
+  extendVoiceMap(voiceMap: VoiceMap, newCharacters: Character[]): VoiceMap {
+    const mappings = { ...voiceMap.mappings };
+    const startIdx = Object.keys(mappings).length;
+    newCharacters.forEach((char, i) => {
+      if (mappings[char.name]) return;
+      mappings[char.name] = this.castCharacter(char, startIdx + i);
+    });
+    return {
+      ...voiceMap,
+      mappings,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   private castCharacter(char: Character, idx: number): BlendedVoice {
     const archetype = matchArchetype(char);
     const gender =

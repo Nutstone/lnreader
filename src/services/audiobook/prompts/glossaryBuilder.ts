@@ -90,3 +90,32 @@ export function buildGlossaryPromptUserMessage(
     .join('\n\n');
   return `Extract a character glossary from this chapter sample:\n\n${combined}`;
 }
+
+/**
+ * Mini glossary update prompt — used when new speakers appear mid-novel.
+ */
+export const GLOSSARY_UPDATE_SYSTEM_PROMPT = `You are extending an existing character glossary. New speakers have been seen in recent chapters. Add them to the glossary using the same fields as the original.
+
+Use the same emit_glossary tool. Output ONLY the new characters — not the existing ones. Keep voice hints and personality 1-3 keywords each.`;
+
+export interface UpdateGlossaryArgs {
+  existing: import('../types').CharacterGlossary;
+  newSpeakers: string[];
+  recentExcerpts: string[];
+}
+
+export function buildGlossaryUpdateUserMessage(
+  args: UpdateGlossaryArgs,
+): string {
+  const knownNames = args.existing.characters
+    .flatMap(c => [c.name, ...c.aliases])
+    .join(', ');
+  return [
+    `Existing characters (do not re-emit): ${knownNames}`,
+    '',
+    `New speakers seen recently: ${args.newSpeakers.join(', ')}`,
+    '',
+    'Recent excerpts:',
+    ...args.recentExcerpts.map((e, i) => `--- Excerpt ${i + 1} ---\n${e}`),
+  ].join('\n');
+}

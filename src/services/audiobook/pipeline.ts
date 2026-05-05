@@ -16,10 +16,13 @@
 import NativeFile from '@specs/NativeFile';
 import { AUDIOBOOK_STORAGE } from '@utils/Storages';
 import {
+  AnnotatedSegment,
   AudioSegment,
   AudiobookConfig,
   CharacterGlossary,
   ChapterAnnotation,
+  PipelineProgress,
+  RESERVED_SPEAKERS,
   VoiceMap,
 } from './types';
 import { LLMAnnotator } from './llmAnnotator';
@@ -68,7 +71,9 @@ export class AudiobookPipeline {
   }
 
   /**
-   * Annotate a single chapter on demand.
+   * Annotate a single chapter on demand. Builds the glossary if it
+   * doesn't exist yet; if the chapter introduces enough new speakers,
+   * extends the glossary so they get distinct voices on next play.
    */
   async annotateOne(chapter: ChapterWithText): Promise<ChapterAnnotation> {
     this.ensureDirs();
@@ -88,7 +93,75 @@ export class AudiobookPipeline {
       `${this.annotationsDir}/${annotation.chapterKey}.json`,
       annotation,
     );
+    await this.discoverNewSpeakers(annotation, glossary);
     return annotation;
+  }
+
+  /**
+   * Annotate a batch of chapters. Re-runs are idempotent due to caching;
+   * the glossary grows as new speakers are seen.
+   */
+  async processChapters(
+    chapters: ChapterWithText[],
+    onProgress?: (p: PipelineProgress) => void,
+  ): Promise<void> {
+    this.ensureDirs();
+    if (chapters.length === 0) return;
+
+    onProgress?.({
+      stage: 'glossary',
+      message: 'Building character cast…',
+      progress: 0,
+    });
+
+    let glossary = await this.getGlossary();
+    if (!glossary) {
+      const sample = chapters.slice(0, 3).map(c => sanitiseChapter(c.rawText));
+      glossary = await this.annotator.buildGlossary(this.config.novelId, sample);
+      await this.writeJSON(`${this.novelDir}/glossary.json`, glossary);
+      const voiceMap = this.caster.buildVoiceMap(glossary);
+      await this.writeJSON(`${this.novelDir}/voice-map.json`, voiceMap);
+    }
+
+    onProgress?.({
+      stage: 'glossary',
+      message: `Cast: ${glossary.characters.length} characters.`,
+      progress: 0.15,
+    });
+
+    for (let i = 0; i < chapters.length; i++) {
+      const chapter = chapters[i];
+      const key = chapterKeyFor(chapter.path);
+      if (await this.getAnnotation(key)) continue;
+
+      onProgress?.({
+        stage: 'annotation',
+        message: `Annotating chapter ${i + 1}/${chapters.length}…`,
+        progress: 0.15 + (0.85 * i) / chapters.length,
+        chapterIndex: i,
+        chapterTotal: chapters.length,
+      });
+
+      const sanitised = sanitiseChapter(chapter.rawText);
+      const annotation = await this.annotator.annotateChapter(
+        chapter.id,
+        chapter.path,
+        sanitised,
+        glossary,
+      );
+      await this.writeJSON(
+        `${this.annotationsDir}/${annotation.chapterKey}.json`,
+        annotation,
+      );
+      const updated = await this.discoverNewSpeakers(annotation, glossary);
+      if (updated) glossary = updated;
+    }
+
+    onProgress?.({
+      stage: 'done',
+      message: `All ${chapters.length} chapters annotated.`,
+      progress: 1,
+    });
   }
 
   /**
@@ -248,6 +321,50 @@ export class AudiobookPipeline {
 
   // ── Internals ───────────────────────────────────────────────────
 
+  /**
+   * If the annotation introduces 3+ unknown speakers, ask the LLM to
+   * extend the glossary, cast their voices, and persist. Returns the
+   * updated glossary or null if no change.
+   */
+  private async discoverNewSpeakers(
+    annotation: ChapterAnnotation,
+    glossary: CharacterGlossary,
+  ): Promise<CharacterGlossary | null> {
+    const newSpeakers = collectUnknownSpeakers(annotation.segments, glossary);
+    if (newSpeakers.length < 3) return null;
+
+    const excerpts = annotation.segments
+      .filter(s => newSpeakers.includes(s.speaker))
+      .slice(0, 6)
+      .map(s => s.text);
+
+    try {
+      const extras = await this.annotator.extendGlossary(
+        glossary,
+        newSpeakers,
+        excerpts,
+      );
+      if (extras.length === 0) return null;
+
+      const updated: CharacterGlossary = {
+        ...glossary,
+        characters: [...glossary.characters, ...extras],
+        updatedAt: new Date().toISOString(),
+      };
+      await this.writeJSON(`${this.novelDir}/glossary.json`, updated);
+
+      const voiceMap = await this.getVoiceMap();
+      if (voiceMap) {
+        const extended = this.caster.extendVoiceMap(voiceMap, extras);
+        await this.writeJSON(`${this.novelDir}/voice-map.json`, extended);
+      }
+      return updated;
+    } catch {
+      // best-effort; new speakers fall back to narrator voice
+      return null;
+    }
+  }
+
   private async getOrBuildGlossary(
     chapter: ChapterWithText,
   ): Promise<CharacterGlossary> {
@@ -291,6 +408,24 @@ export class AudiobookPipeline {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
+
+function collectUnknownSpeakers(
+  segments: AnnotatedSegment[],
+  glossary: CharacterGlossary,
+): string[] {
+  const known = new Set<string>([
+    ...RESERVED_SPEAKERS,
+    ...glossary.characters.flatMap(c => [
+      c.name.toLowerCase(),
+      ...c.aliases.map(a => a.toLowerCase()),
+    ]),
+  ]);
+  const unknown = new Set<string>();
+  for (const s of segments) {
+    if (!known.has(s.speaker.toLowerCase())) unknown.add(s.speaker);
+  }
+  return [...unknown];
+}
 
 function pauseToMs(p: 'short' | 'medium' | 'long'): number {
   switch (p) {
