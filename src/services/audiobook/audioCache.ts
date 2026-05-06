@@ -3,10 +3,11 @@
  *
  * Pocket TTS is deterministic given the same (text, speaker clip),
  * so re-renders during seek / replay / chapter restart are pure
- * waste. The cache stores the rendered WAV (base64-encoded so it
- * survives a text-only readFile) under the FNV hash of the inputs.
+ * waste. The cache writes the rendered WAV (binary, decoded by
+ * NativeFile's base64 encoding flag) once and the player reads it
+ * back via `file://` URI — no read-decode-rewrite roundtrip.
  *
- * Lives at `<dir>/<hash>.b64`. Eviction is manual (`clear()`); the
+ * Lives at `<dir>/<hash>.wav`. Eviction is manual (`clear()`); the
  * dir is expected to sit under the OS external cache so storage
  * pressure can also reclaim it.
  */
@@ -26,23 +27,19 @@ export class AudioCache {
     return fnv1a(`${clipPath}␟${text}`);
   }
 
-  /** Returns the cached base64 WAV, or null if not cached. */
-  get(key: string): string | null {
-    const path = this.pathFor(key);
-    if (!NativeFile.exists(path)) {
-      return null;
-    }
-    try {
-      return NativeFile.readFile(path);
-    } catch {
-      this.evict(key);
-      return null;
-    }
+  /** Absolute path where the WAV for `key` lives (or would live). */
+  pathFor(key: string): string {
+    return `${this.dir}/${key}.wav`;
   }
 
+  has(key: string): boolean {
+    return NativeFile.exists(this.pathFor(key));
+  }
+
+  /** Decode the base64-encoded WAV and write it as binary on disk. */
   set(key: string, base64Wav: string): void {
     this.ensureDir();
-    NativeFile.writeFile(this.pathFor(key), base64Wav);
+    NativeFile.writeFile(this.pathFor(key), base64Wav, 'base64');
   }
 
   clear(): void {
@@ -50,17 +47,6 @@ export class AudioCache {
       NativeFile.unlink(this.dir);
     }
     this.ensured = false;
-  }
-
-  private evict(key: string): void {
-    const path = this.pathFor(key);
-    if (NativeFile.exists(path)) {
-      NativeFile.unlink(path);
-    }
-  }
-
-  private pathFor(key: string): string {
-    return `${this.dir}/${key}.b64`;
   }
 
   private ensureDir(): void {

@@ -1,5 +1,4 @@
 import { Audio } from 'expo-av';
-import NativeFile from '@specs/NativeFile';
 import { getMMKVObject } from '@utils/mmkv/mmkv';
 import {
   AUDIOBOOK_SETTINGS,
@@ -17,7 +16,6 @@ export class AudiobookPlayer {
   private sound: Audio.Sound | null = null;
   private state: AudiobookState = 'idle';
   private currentNovelId = '';
-  private tempDir = '';
   private activeGenerator: AsyncGenerator<AudioSegment> | null = null;
   private bufferingPromise: Promise<void> | null = null;
   private segmentResolvers: (() => void)[] = [];
@@ -104,12 +102,6 @@ export class AudiobookPlayer {
 
     try {
       const pipeline = this.getPipeline(novelId);
-      this.tempDir =
-        NativeFile.getConstants().ExternalCachesDirectoryPath +
-        '/audiobook_temp';
-      if (!NativeFile.exists(this.tempDir)) {
-        NativeFile.mkdir(this.tempDir);
-      }
 
       // Annotate the chapter
       const annotation: ChapterAnnotation = await pipeline.annotateChapter(
@@ -213,33 +205,24 @@ export class AudiobookPlayer {
     }
 
     try {
-      // Clean up previous sound
       if (this.sound) {
         await this.sound.unloadAsync();
         this.sound = null;
       }
 
-      // Write base64 WAV to temp file
-      const tempPath = `${this.tempDir}/segment_${index}.wav`;
-      NativeFile.writeFile(tempPath, segment.audioData, 'base64');
-
-      // Load and play
       const { sound } = await Audio.Sound.createAsync(
-        { uri: `file://${tempPath}` },
+        { uri: `file://${segment.audioPath}` },
         { shouldPlay: this.state === 'playing' },
       );
       this.sound = sound;
 
-      // Set up completion callback
       sound.setOnPlaybackStatusUpdate(status => {
-        if (status.isLoaded && status.didJustFinish) {
-          // Clean up temp file
-          if (NativeFile.exists(tempPath)) {
-            NativeFile.unlink(tempPath);
-          }
-          if (this.state === 'playing') {
-            this.playSegment(index + 1);
-          }
+        if (
+          status.isLoaded &&
+          status.didJustFinish &&
+          this.state === 'playing'
+        ) {
+          this.playSegment(index + 1);
         }
       });
     } catch (error) {
@@ -269,7 +252,6 @@ export class AudiobookPlayer {
   }
 
   async stop(): Promise<void> {
-    const wasActive = this.state !== 'idle';
     this.setState('idle');
 
     // Close the async generator so it stops producing segments
@@ -298,7 +280,6 @@ export class AudiobookPlayer {
       this.sound = null;
     }
 
-    // Wait for buffering to complete before cleaning up temp files
     if (this.bufferingPromise) {
       try {
         await this.bufferingPromise;
@@ -310,15 +291,6 @@ export class AudiobookPlayer {
 
     this.segments = [];
     this.currentIndex = 0;
-
-    // Clean up temp files after buffering has stopped
-    if (wasActive && this.tempDir && NativeFile.exists(this.tempDir)) {
-      try {
-        NativeFile.unlink(this.tempDir);
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
   }
 
   async seekTo(index: number): Promise<void> {

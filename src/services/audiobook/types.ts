@@ -177,7 +177,11 @@ export interface VoiceMap {
 
 export interface AudioSegment {
   pauseBeforeMs: number;
-  audioData: string;
+  /**
+   * Absolute path to a WAV file on disk. Lives under the renderer's
+   * audio cache; `expo-av` plays it directly via `file://` URI.
+   */
+  audioPath: string;
   durationMs: number;
   speaker: string;
   text: string;

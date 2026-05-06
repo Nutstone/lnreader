@@ -103,12 +103,12 @@ export class TTSRenderer {
     const clip = this.resolveClip(assignment, emotion);
     const clipPath = await this.downloader.ensureVoiceClip(clip);
     const cacheKey = AudioCache.keyFor(text, clipPath);
+    const audioPath = this.audioCache.pathFor(cacheKey);
 
-    const cached = this.audioCache.get(cacheKey);
-    if (cached) {
+    if (this.audioCache.has(cacheKey)) {
       return {
         pauseBeforeMs: 0,
-        audioData: cached,
+        audioPath,
         durationMs: 0,
         speaker: '',
         text,
@@ -123,15 +123,12 @@ export class TTSRenderer {
     const processed = postProcess(samples);
 
     const wavBytes = encodeWav(processed, sampleRate);
-    const audioData = arrayBufferToBase64(wavBytes);
-    const durationMs = (processed.length / sampleRate) * 1000;
-
-    this.audioCache.set(cacheKey, audioData);
+    this.audioCache.set(cacheKey, arrayBufferToBase64(wavBytes));
 
     return {
       pauseBeforeMs: 0,
-      audioData,
-      durationMs,
+      audioPath,
+      durationMs: (processed.length / sampleRate) * 1000,
       speaker: '',
       text,
     };
