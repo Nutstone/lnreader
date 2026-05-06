@@ -15,39 +15,26 @@
  * so the lookahead buffer hides this work entirely.
  */
 
-const DEFAULT_OPTIONS = {
-  /** Threshold below which a sample counts as silent (linear). */
-  silenceThreshold: 0.005,
-  /** Keep this much silence on each end after trimming (samples). */
-  silenceTailSamples: 240, // 10ms @ 24kHz
-  /** Target RMS amplitude for normalization (linear). */
-  targetRms: 0.1,
-  /** Hard peak ceiling after normalization (linear). */
-  peakCeiling: 0.95,
+/** Threshold below which a sample counts as silent (linear). */
+const SILENCE_THRESHOLD = 0.005;
+/** Keep this much silence on each end after trimming (10ms @ 24kHz). */
+const SILENCE_TAIL_SAMPLES = 240;
+/** Target RMS amplitude for normalization (linear). */
+const TARGET_RMS = 0.1;
+/** Hard peak ceiling after normalization (linear). */
+const PEAK_CEILING = 0.95;
+
+export const postProcess = (samples: Float32Array): Float32Array => {
+  return normalize(trimSilence(samples));
 };
 
-export type PostProcessOptions = typeof DEFAULT_OPTIONS;
-
-export const postProcess = (
-  samples: Float32Array,
-  options: Partial<PostProcessOptions> = {},
-): Float32Array => {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  const trimmed = trimSilence(samples, opts);
-  return normalize(trimmed, opts);
-};
-
-const trimSilence = (
-  samples: Float32Array,
-  opts: PostProcessOptions,
-): Float32Array => {
-  const { silenceThreshold, silenceTailSamples } = opts;
+const trimSilence = (samples: Float32Array): Float32Array => {
   let start = 0;
-  while (start < samples.length && Math.abs(samples[start]) < silenceThreshold) {
+  while (start < samples.length && Math.abs(samples[start]) < SILENCE_THRESHOLD) {
     start++;
   }
   let end = samples.length;
-  while (end > start && Math.abs(samples[end - 1]) < silenceThreshold) {
+  while (end > start && Math.abs(samples[end - 1]) < SILENCE_THRESHOLD) {
     end--;
   }
 
@@ -55,15 +42,12 @@ const trimSilence = (
     return samples;
   }
 
-  const padStart = Math.max(0, start - silenceTailSamples);
-  const padEnd = Math.min(samples.length, end + silenceTailSamples);
+  const padStart = Math.max(0, start - SILENCE_TAIL_SAMPLES);
+  const padEnd = Math.min(samples.length, end + SILENCE_TAIL_SAMPLES);
   return samples.subarray(padStart, padEnd);
 };
 
-const normalize = (
-  samples: Float32Array,
-  opts: PostProcessOptions,
-): Float32Array => {
+const normalize = (samples: Float32Array): Float32Array => {
   if (samples.length === 0) {
     return samples;
   }
@@ -84,11 +68,11 @@ const normalize = (
     return samples;
   }
 
-  let gain = opts.targetRms / rms;
+  let gain = TARGET_RMS / rms;
   // Don't let normalization push peaks past the ceiling.
   const peakAfterGain = peak * gain;
-  if (peakAfterGain > opts.peakCeiling) {
-    gain *= opts.peakCeiling / peakAfterGain;
+  if (peakAfterGain > PEAK_CEILING) {
+    gain *= PEAK_CEILING / peakAfterGain;
   }
 
   if (Math.abs(gain - 1) < 0.01) {

@@ -10,8 +10,8 @@ import { buildGlossaryPrompt } from './prompts/glossaryBuilder';
 import { buildAnnotationPrompt } from './prompts/chapterAnnotator';
 
 const DEFAULT_MODELS: Record<LLMConfig['provider'], string> = {
-  anthropic: 'claude-sonnet-4-20250514',
-  gemini: 'gemini-2.0-flash',
+  anthropic: 'claude-sonnet-4-5',
+  gemini: 'gemini-2.5-flash',
   ollama: 'llama3.1:8b',
 };
 

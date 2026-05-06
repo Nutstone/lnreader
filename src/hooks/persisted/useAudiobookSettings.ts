@@ -10,7 +10,6 @@ export interface AudiobookSettings {
   model: string;
   ttsPrecision: TTSPrecision;
   lookaheadSegments: number;
-  sampleRate: number;
   mainCharacterEmotionalSlots: number;
 }
 
@@ -21,7 +20,6 @@ const initialAudiobookSettings: AudiobookSettings = {
   model: '',
   ttsPrecision: 'q8',
   lookaheadSegments: 4,
-  sampleRate: 24000,
   mainCharacterEmotionalSlots: 10,
 };
 

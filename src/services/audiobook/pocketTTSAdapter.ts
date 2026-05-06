@@ -6,34 +6,29 @@
  *   speaker prompt → encoded speaker state (precomputed per voice)
  *   model.run({ text, speaker_state }) → audio samples (float32 @ 24kHz)
  *
- * The exact tensor names and shapes vary slightly between community
- * ONNX exports of Pocket TTS. The constants at the top of this file
- * are the values the official `pocket-tts-onnx-export` uses; if you
- * point `modelRepoUrl` at a different export, override them via
- * `PocketTTSAdapter.setIOSpec`.
+ * Tensor I/O names below match the official `pocket-tts-onnx-export`.
+ * If you ever swap to a different export, update the constants here.
+ *
+ * KNOWN GAP: `loadSpeakerState` reads voice files via
+ * `NativeFile.readFile`, which decodes the bytes as UTF-8. Raw
+ * binary files (multi-byte sequences) round-trip lossily — the
+ * voice repo would need to ship its speaker states as base64 text
+ * (or NativeFile would need a binary-read mode) before this works
+ * end-to-end against a real ONNX export.
  */
 
 import { InferenceSession, Tensor } from 'onnxruntime-react-native';
 import NativeFile from '@specs/NativeFile';
 
-const DEFAULT_IO_SPEC = {
-  textInputName: 'text_tokens',
-  speakerInputName: 'speaker_state',
-  audioOutputName: 'audio',
-  sampleRate: 24000,
-};
-
-export type PocketTTSIOSpec = typeof DEFAULT_IO_SPEC;
+const TEXT_INPUT_NAME = 'text_tokens';
+const SPEAKER_INPUT_NAME = 'speaker_state';
+const AUDIO_OUTPUT_NAME = 'audio';
+const SAMPLE_RATE = 24000;
 
 export class PocketTTSAdapter {
   private session: InferenceSession | null = null;
-  private spec: PocketTTSIOSpec = DEFAULT_IO_SPEC;
   private speakerStateCache = new Map<string, Float32Array>();
   private tokenizer: SimpleTokenizer | null = null;
-
-  setIOSpec(spec: Partial<PocketTTSIOSpec>): void {
-    this.spec = { ...this.spec, ...spec };
-  }
 
   async load(modelPath: string, tokenizerPath: string): Promise<void> {
     if (this.session) {
@@ -53,20 +48,19 @@ export class PocketTTSAdapter {
   }
 
   /**
-   * Loads a precomputed speaker state from disk. Pocket TTS voice
-   * files are .safetensors / .npy / .wav depending on the export;
-   * we read the raw float32 contents and trust the export ships
-   * them as flat arrays. Cached after the first call.
+   * Loads a precomputed speaker state from disk. Cached after the
+   * first call. See file-level note about the assumed format.
    */
-  async loadSpeakerState(
-    voiceClipPath: string,
-  ): Promise<Float32Array> {
+  async loadSpeakerState(voiceClipPath: string): Promise<Float32Array> {
     const cached = this.speakerStateCache.get(voiceClipPath);
     if (cached) {
       return cached;
     }
-    const base64 = NativeFile.readFile(voiceClipPath);
-    const bytes = base64ToUint8Array(base64);
+    const raw = NativeFile.readFile(voiceClipPath);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+      bytes[i] = raw.charCodeAt(i) & 0xff;
+    }
     const floats = new Float32Array(
       bytes.buffer,
       bytes.byteOffset,
@@ -96,40 +90,25 @@ export class PocketTTSAdapter {
       speakerState.length,
     ]);
 
-    const feeds: Record<string, Tensor> = {
-      [this.spec.textInputName]: tokenTensor,
-      [this.spec.speakerInputName]: speakerTensor,
+    const result = await this.session.run({
+      [TEXT_INPUT_NAME]: tokenTensor,
+      [SPEAKER_INPUT_NAME]: speakerTensor,
+    });
+
+    return {
+      samples: result[AUDIO_OUTPUT_NAME].data as Float32Array,
+      sampleRate: SAMPLE_RATE,
     };
-
-    const result = await this.session.run(feeds);
-    const audioTensor = result[this.spec.audioOutputName];
-    const samples = audioTensor.data as Float32Array;
-
-    return { samples, sampleRate: this.spec.sampleRate };
   }
 }
 
-// ── Helpers ─────────────────────────────────────────────────────
-
-const base64ToUint8Array = (b64: string): Uint8Array => {
-  const binary =
-    typeof atob === 'function'
-      ? atob(b64)
-      : Buffer.from(b64, 'base64').toString('binary');
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-};
+// ── Tokenizer ───────────────────────────────────────────────────
 
 /**
  * Minimal tokenizer that reads a Hugging Face tokenizer.json and
- * encodes text via its `vocab` map. Pocket TTS uses a simple
- * BPE/SentencePiece scheme; this implementation handles the
- * common-case greedy longest-match path which is sufficient for
- * audiobook narration. Replace with a full BPE if you hit
- * accuracy issues.
+ * encodes via greedy longest-match against the vocab map. Sufficient
+ * for audiobook narration; swap in a full BPE if you hit accuracy
+ * issues on unusual text.
  */
 class SimpleTokenizer {
   private vocab: Map<string, number>;
@@ -149,10 +128,8 @@ class SimpleTokenizer {
       added_tokens?: Array<{ id: number; content: string }>;
     };
     const vocab = new Map<string, number>(Object.entries(json.model.vocab));
-    const bos =
-      json.added_tokens?.find(t => t.content === '<s>')?.id ?? 1;
-    const eos =
-      json.added_tokens?.find(t => t.content === '</s>')?.id ?? 2;
+    const bos = json.added_tokens?.find(t => t.content === '<s>')?.id ?? 1;
+    const eos = json.added_tokens?.find(t => t.content === '</s>')?.id ?? 2;
     return new SimpleTokenizer(vocab, bos, eos);
   }
 
@@ -162,8 +139,7 @@ class SimpleTokenizer {
     while (i < text.length) {
       let matched = false;
       for (let len = Math.min(16, text.length - i); len >= 1; len--) {
-        const chunk = text.slice(i, i + len);
-        const id = this.vocab.get(chunk);
+        const id = this.vocab.get(text.slice(i, i + len));
         if (id !== undefined) {
           tokens.push(id);
           i += len;

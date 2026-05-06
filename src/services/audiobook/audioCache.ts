@@ -45,18 +45,18 @@ export class AudioCache {
     NativeFile.writeFile(this.pathFor(key), base64Wav);
   }
 
-  evict(key: string): void {
-    const path = this.pathFor(key);
-    if (NativeFile.exists(path)) {
-      NativeFile.unlink(path);
-    }
-  }
-
   clear(): void {
     if (NativeFile.exists(this.dir)) {
       NativeFile.unlink(this.dir);
     }
     this.ensured = false;
+  }
+
+  private evict(key: string): void {
+    const path = this.pathFor(key);
+    if (NativeFile.exists(path)) {
+      NativeFile.unlink(path);
+    }
   }
 
   private pathFor(key: string): string {

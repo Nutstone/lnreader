@@ -1,5 +1,4 @@
 import { getPlugin } from '@plugins/pluginManager';
-import { getChapter } from '@database/queries/ChapterQueries';
 import { BackgroundTaskMetadata } from '@services/ServiceManager';
 import { AudiobookPipeline } from './pipeline';
 import { AudiobookConfig } from './types';
@@ -40,7 +39,6 @@ export const processAudiobook = async (
       tts: {
         precision: settings?.ttsPrecision ?? 'q8',
         lookaheadSegments: settings?.lookaheadSegments ?? 4,
-        sampleRate: settings?.sampleRate ?? 24000,
         mainCharacterEmotionalSlots:
           settings?.mainCharacterEmotionalSlots ?? 10,
       },

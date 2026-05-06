@@ -603,7 +603,6 @@
     "model": "Model",
     "ttsQuality": "TTS Quality",
     "lookaheadSegments": "Lookahead segments",
-    "sampleRate": "Sample rate",
     "providerAnthropic": "Anthropic",
     "providerGemini": "Gemini",
     "providerOllama": "Ollama"

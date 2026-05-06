@@ -33,10 +33,7 @@ export class TTSRenderer {
   constructor(config: TTSConfig, cacheDir: string) {
     this.config = config;
     this.adapter = new PocketTTSAdapter();
-    this.downloader = new ModelDownloader({
-      cacheDir,
-      modelRepoUrl: config.modelRepoUrl,
-    });
+    this.downloader = new ModelDownloader(cacheDir);
     this.audioCache = new AudioCache(`${cacheDir}/audio`);
   }
 
@@ -165,7 +162,6 @@ export class TTSRenderer {
         ...audio,
         pauseBeforeMs,
         speaker: segment.speaker,
-        text: segment.text,
       }));
 
       renderQueue.push(renderPromise);
@@ -179,11 +175,6 @@ export class TTSRenderer {
     while (renderQueue.length > 0) {
       yield await renderQueue.shift()!;
     }
-  }
-
-  /** Wipe the audio cache (e.g. after a voice override). */
-  clearAudioCache(): void {
-    this.audioCache.clear();
   }
 
   /**

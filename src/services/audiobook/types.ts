@@ -31,7 +31,6 @@ export type TTSPrecision = 'q8' | 'fp16' | 'fp32';
 export interface TTSConfig {
   precision: TTSPrecision;
   lookaheadSegments: number;
-  sampleRate: number;
   /**
    * How many of the top characters get locked to *emotional* speakers
    * (Expresso + voice-zero), which can express emotion across the
@@ -39,8 +38,6 @@ export interface TTSConfig {
    * donation voices.
    */
   mainCharacterEmotionalSlots: number;
-  /** Override base URL for the Pocket TTS model. */
-  modelRepoUrl?: string;
 }
 
 // ── Pipeline Configuration ──────────────────────────────────────
