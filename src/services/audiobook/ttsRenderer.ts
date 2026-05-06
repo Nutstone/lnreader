@@ -54,8 +54,9 @@ export class TTSRenderer {
 
   /**
    * Downloads every voice clip referenced in the chapter and warms
-   * the speaker-state cache before rendering starts. With ~10 main
-   * characters per chapter that's ~10 first-line stutters avoided.
+   * the speaker-state cache before rendering starts. Eliminates the
+   * per-speaker first-line stutter (one download + state load per
+   * unique speaker, paid up front in parallel instead of mid-stream).
    */
   async prefetchForChapter(
     annotation: ChapterAnnotation,

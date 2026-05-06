@@ -3,10 +3,10 @@
  *
  * Multi-voice audiobook engine for light novels using cloud LLM
  * for text analysis and on-device Pocket TTS (Kyutai) with a curated
- * voice bank. Main characters + narrator are locked to Expresso
- * speakers, which provide emotional variants (default/happy/sad/
- * whisper/etc.) for the same speaker identity. One-off characters
- * draw from a CC0 voice-donation bank (single-emotion).
+ * voice bank. Main characters + narrator are locked to *emotional*
+ * speakers (Expresso + voice-zero), which provide emotional variants
+ * (neutral/happy/sad/whisper/...) for the same speaker identity.
+ * Side characters draw from a CC0 voice-donation bank (single-emotion).
  */
 
 // ── LLM Provider Configuration ──────────────────────────────────
@@ -58,9 +58,9 @@ export interface Character {
   description: string;
   /**
    * Importance hint from the LLM. Higher = more central to the
-   * story. Used to pick which characters get locked to Expresso
-   * speakers (which have full emotional range) vs. drawing from
-   * the single-emotion donation bank.
+   * story. Used to pick which characters get locked to emotional
+   * speakers (full emotional range) vs. drawing from the
+   * single-emotion donation bank.
    */
   importance?: number;
 }
