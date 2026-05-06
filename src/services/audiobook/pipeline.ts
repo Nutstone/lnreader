@@ -1,5 +1,5 @@
 import NativeFile from '@specs/NativeFile';
-import { AUDIOBOOK_STORAGE } from '@utils/Storages';
+import { AUDIOBOOK_CACHE_STORAGE, AUDIOBOOK_STORAGE } from '@utils/Storages';
 import {
   AudiobookConfig,
   CharacterGlossary,
@@ -27,10 +27,10 @@ export class AudiobookPipeline {
     this.assigner = new VoiceAssigner({
       mainCharacterEmotionalSlots: config.tts.mainCharacterEmotionalSlots,
     });
-    this.renderer = new TTSRenderer(
-      config.tts,
-      `${AUDIOBOOK_STORAGE}/_tts-cache`,
-    );
+    // Re-derivable bytes (model, voices, audio renders) go in the
+    // OS cache dir so they don't blow Android Auto Backup's 25 MB
+    // cap. Per-novel JSON stays under AUDIOBOOK_STORAGE.
+    this.renderer = new TTSRenderer(config.tts, AUDIOBOOK_CACHE_STORAGE);
     this.novelDir = `${AUDIOBOOK_STORAGE}/${config.novelId}`;
   }
 

@@ -44,7 +44,6 @@ export const processAudiobook = async (
         mainCharacterEmotionalSlots:
           settings?.mainCharacterEmotionalSlots ?? 10,
       },
-      cacheDir: '',
       novelId: String(data.novelId),
     };
 

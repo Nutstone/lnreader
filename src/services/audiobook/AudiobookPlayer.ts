@@ -7,7 +7,6 @@ import {
 } from '@hooks/persisted/useAudiobookSettings';
 import { AudiobookPipeline } from './pipeline';
 import { AudioSegment, ChapterAnnotation, AudiobookConfig } from './types';
-import { AUDIOBOOK_STORAGE } from '@utils/Storages';
 
 export type AudiobookState = 'idle' | 'processing' | 'playing' | 'paused';
 
@@ -75,7 +74,6 @@ export class AudiobookPlayer {
         mainCharacterEmotionalSlots:
           settings.mainCharacterEmotionalSlots ?? 10,
       },
-      cacheDir: AUDIOBOOK_STORAGE,
       novelId,
     };
 

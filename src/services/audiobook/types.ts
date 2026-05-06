@@ -48,7 +48,6 @@ export interface TTSConfig {
 export interface AudiobookConfig {
   llm: LLMConfig;
   tts: TTSConfig;
-  cacheDir: string;
   novelId: string;
 }
 
