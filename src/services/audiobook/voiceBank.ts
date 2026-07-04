@@ -3,34 +3,28 @@
  *
  * Two pools, in priority order for assignment:
  *
- * 1. EMOTIONAL_SPEAKERS — speakers with multiple emotional variants
- *    for the same identity. Used for the narrator and main characters
- *    so they can express emotion across the book. Sourced from:
- *      - Expresso (4 speakers, CC-BY-NC) via kyutai/tts-voices
- *      - voice-zero/voices-emotion (LibriVox-derived, public domain
- *        with Chatterbox-synthesized emotional variants)
+ * 1. EMOTIONAL_SPEAKERS — the four Expresso speakers (CC-BY-NC, real
+ *    human emotional recordings in kyutai/tts-voices). Each emotion
+ *    maps to a real reference WAV which the on-device mimi encoder
+ *    turns into a voice-conditioning state. Used for the narrator and
+ *    main characters so they can express emotion across the book.
  *
- * 2. DONATION_VOICES — single-emotion voices from the Unmute Voice
- *    Donation Project, fully CC0. Used for side / one-off characters.
+ * 2. DONATION_VOICES — precomputed single-style prompt states from
+ *    the ungated kyutai/pocket-tts-without-voice-cloning repository
+ *    (languages/english_2026-04/embeddings/<name>.safetensors, a few
+ *    MB each, no on-device encoding required). Used for side / one-off
+ *    characters.
+ *
+ * Every file path below was verified to exist upstream (2026-07).
+ * Expresso clip filenames encode the speaker pair and channel:
+ * `ex03-ex01_happy_001_channel2_257s.wav` is speaker ex01 (channel 2
+ * of the ex03-ex01 pair) in the "happy" style, 257 seconds long. The
+ * smallest available file per (speaker, style) was chosen.
  *
  * Stable IDs: every entry is identified by a stable string used in
  * the persisted voice map. Reordering or removing entries is a
  * breaking change for cached voice maps — bump
  * VOICE_BANK_SCHEMA_VERSION if you do that.
- *
- * ── KNOWN GAP (verified against upstream, 2026-07) ──────────────
- * Only the voice-zero URLs below resolve. In kyutai/tts-voices the
- * Expresso files are actually named like
- * `expresso/ex01-ex02_default_001_channel1_168s.wav` (paired
- * speakers, per-channel) and voice-donations files are anonymized
- * hashes like `voice-donations/0a67.wav` — the friendly names below
- * 404. More fundamentally these entries point at raw audio, but the
- * ungated Pocket TTS release removes the voice-cloning encoder that
- * would turn audio into speaker states; the real downloadable
- * artifacts are precomputed embeddings (`embeddings_v3/<name>.
- * safetensors` in the model repo, or the `.safetensors` companions
- * next to each clip in kyutai/tts-voices). The catalog needs
- * re-keying to those files once the model integration is real.
  */
 
 import type {
@@ -40,179 +34,114 @@ import type {
   VoiceClip,
 } from './types';
 
-export const VOICE_BANK_SCHEMA_VERSION = 2;
-
-// ── Source URLs ─────────────────────────────────────────────────
-
-const VOICE_ZERO_BASE =
-  'https://raw.githubusercontent.com/OwenTyme/voice-zero/main/voices-emotion';
+export const VOICE_BANK_SCHEMA_VERSION = 3;
 
 // ── Expresso speakers (kyutai/tts-voices) ───────────────────────
 
-const expressoClip = (relPath: string): VoiceClip => ({
-  path: `expresso/${relPath}`,
+const expressoClip = (fileName: string): VoiceClip => ({
+  path: `expresso/${fileName}`,
 });
-
-/**
- * Expresso style names available: default, confused, enunciated,
- * happy, laughing, sad, whisper. We map our Emotion enum onto the
- * closest available style; missing ones fall back to `default`.
- */
-const buildExpressoVariants = (
-  speakerCode: string,
-): EmotionalSpeaker['variants'] => {
-  const make = (style: string) => expressoClip(`${speakerCode}-${style}.wav`);
-  return {
-    neutral: make('default'),
-    happy: make('happy'),
-    sad: make('sad'),
-    whisper: make('whisper'),
-    surprised: make('laughing'),
-    angry: make('enunciated'),
-    fearful: make('whisper'),
-  };
-};
-
-// ── voice-zero speakers ─────────────────────────────────────────
-
-const vzClip = (speaker: string, emotion: string): VoiceClip => ({
-  path: `${speaker}/${emotion}.flac`,
-  baseUrl: VOICE_ZERO_BASE,
-});
-
-/**
- * voice-zero/voices-emotion provides 13 emotional flavours per
- * speaker: anger, calm, confused, enthused, excited, frustrated,
- * happy, neutral, sad, shout, surprised, tired, worried.
- *
- * Mapping to our Emotion enum: pick the closest match and fall
- * back to neutral for any gap.
- */
-const buildVoiceZeroVariants = (
-  speaker: string,
-): EmotionalSpeaker['variants'] => {
-  const make = (emotion: string) => vzClip(speaker, emotion);
-  return {
-    neutral: make('neutral'),
-    happy: make('happy'),
-    sad: make('sad'),
-    angry: make('anger'),
-    fearful: make('worried'),
-    surprised: make('surprised'),
-    whisper: make('calm'),
-  };
-};
 
 const expresso = (
   id: string,
   label: string,
   gender: 'male' | 'female',
-  speakerCode: string,
-): EmotionalSpeaker => ({
-  id,
-  label,
-  gender,
-  source: 'expresso',
-  variants: buildExpressoVariants(speakerCode),
-});
-
-const voiceZero = (
-  speaker: string,
-  label: string,
-  gender: 'male' | 'female',
-): EmotionalSpeaker => ({
-  id: `vz_${speaker}`,
-  label,
-  gender,
-  source: 'voice-zero',
-  variants: buildVoiceZeroVariants(speaker),
-});
+  variantFiles: Partial<Record<Emotion, string>> & { neutral: string },
+): EmotionalSpeaker => {
+  const variants = {} as EmotionalSpeaker['variants'];
+  for (const [emotion, fileName] of Object.entries(variantFiles)) {
+    variants[emotion as Emotion] = expressoClip(fileName);
+  }
+  return { id, label, gender, source: 'expresso', variants };
+};
 
 /**
- * Curated emotional-speaker pool. Order matters: characters claim
- * slots in the order returned by `rankByImportance` from
- * voiceAssigner, picking gender-matched speakers first. Expresso
- * is listed first because the recordings are real human emotional
- * speech; voice-zero variants are Chatterbox-synthesized so the
- * quality bar is slightly lower.
+ * Emotion → Expresso style mapping used below: neutral→default/
+ * narration, happy→happy, sad→sad-sympathetic, angry→angry,
+ * fearful→fearful (only ex02/ex04 recorded it), surprised→laughing,
+ * whisper→whisper. Missing variants fall back to neutral at runtime.
  */
 export const EMOTIONAL_SPEAKERS: EmotionalSpeaker[] = [
-  // Expresso (real human emotional recordings).
-  expresso('ex01', 'Expresso 01 (warm female)', 'female', 'ex01'),
-  expresso('ex02', 'Expresso 02 (steady male)', 'male', 'ex02'),
-  expresso('ex03', 'Expresso 03 (narrator male)', 'male', 'ex03'),
-  expresso('ex04', 'Expresso 04 (bright female)', 'female', 'ex04'),
-
-  // voice-zero (synthetic emotional variants on LibriVox voices).
-  voiceZero('amy_koenig', 'Amy Koenig', 'female'),
-  voiceZero('anna_simon', 'Anna Simon', 'female'),
-  voiceZero('caprisha_page', 'Caprisha Page', 'female'),
-  voiceZero('cori_samuel', 'Cori Samuel', 'female'),
-  voiceZero('emily_cripps', 'Emily Cripps', 'female'),
-  voiceZero('jodi_krangle', 'Jodi Krangle', 'female'),
-  voiceZero('kara_shallenberg', 'Kara Shallenberg', 'female'),
-  voiceZero('karen_savage', 'Karen Savage', 'female'),
-  voiceZero('kristin_hughes', 'Kristin Hughes', 'female'),
-  voiceZero('laurie_anne_walden', 'Laurie Anne Walden', 'female'),
-  voiceZero('linda_johnson', 'Linda Johnson', 'female'),
-  voiceZero('lizzie_driver', 'Lizzie Driver', 'female'),
-  voiceZero('alan_davis_drake', 'Alan Davis Drake', 'male'),
-  voiceZero('alec_daitsman', 'Alec Daitsman', 'male'),
-  voiceZero('alexander_hatton', 'Alexander Hatton', 'male'),
-  voiceZero('ben_tucker', 'Ben Tucker', 'male'),
-  voiceZero('bill_boerst', 'Bill Boerst', 'male'),
-  voiceZero('david_clark', 'David Clark', 'male'),
-  voiceZero('david_wales', 'David Wales', 'male'),
-  voiceZero('donald_malone', 'Donald Malone', 'male'),
-  voiceZero('graeme_dunlop', 'Graeme Dunlop', 'male'),
-  voiceZero('greg_giordano', 'Greg Giordano', 'male'),
-  voiceZero('mark_nelson', 'Mark Nelson', 'male'),
-  voiceZero('peter_yearsley', 'Peter Yearsley', 'male'),
-  voiceZero('phil_chenevert', 'Phil Chenevert', 'male'),
+  expresso('ex01', 'Expresso 01 (warm female)', 'female', {
+    neutral: 'ex01-ex02_default_001_channel1_168s.wav',
+    happy: 'ex03-ex01_happy_001_channel2_257s.wav',
+    sad: 'ex04-ex01_sad-sympathetic_001_channel2_346s.wav',
+    angry: 'ex03-ex01_angry_001_channel2_181s.wav',
+    surprised: 'ex03-ex01_laughing_002_channel2_232s.wav',
+    whisper: 'ex01-ex02_whisper_001_channel1_579s.wav',
+  }),
+  expresso('ex02', 'Expresso 02 (steady male)', 'male', {
+    neutral: 'ex01-ex02_default_001_channel2_198s.wav',
+    happy: 'ex04-ex02_happy_001_channel2_140s.wav',
+    sad: 'ex03-ex02_sympathetic-sad_008_channel2_268s.wav',
+    angry: 'ex04-ex02_angry_001_channel2_150s.wav',
+    fearful: 'ex04-ex02_fearful_001_channel2_266s.wav',
+    surprised: 'ex04-ex02_laughing_001_channel2_159s.wav',
+    whisper: 'ex01-ex02_whisper_001_channel2_717s.wav',
+  }),
+  expresso('ex03', 'Expresso 03 (narrator male)', 'male', {
+    neutral: 'ex04-ex03_default_002_channel2_239s.wav',
+    happy: 'ex03-ex01_happy_001_channel1_334s.wav',
+    sad: 'ex03-ex02_sympathetic-sad_008_channel1_215s.wav',
+    angry: 'ex03-ex01_angry_001_channel1_201s.wav',
+    surprised: 'ex03-ex01_laughing_001_channel1_188s.wav',
+    whisper: 'ex04-ex03_whisper_002_channel2_266s.wav',
+  }),
+  expresso('ex04', 'Expresso 04 (bright female)', 'female', {
+    neutral: 'ex04-ex01_narration_001_channel1_605s.wav',
+    happy: 'ex04-ex02_happy_001_channel1_118s.wav',
+    sad: 'ex04-ex01_sad-sympathetic_001_channel1_267s.wav',
+    angry: 'ex04-ex02_angry_001_channel1_119s.wav',
+    fearful: 'ex04-ex02_fearful_001_channel1_316s.wav',
+    surprised: 'ex04-ex02_laughing_001_channel1_147s.wav',
+    whisper: 'ex04-ex03_whisper_001_channel1_198s.wav',
+  }),
 ];
 
 /** Default speaker for the narrator. Override via voice map UI. */
 export const DEFAULT_NARRATOR_SPEAKER_ID = 'ex03';
 
-// ── Donation voices (CC0 single-emotion fallback) ───────────────
+// ── Predefined prompt states (single-style fallback pool) ───────
 
 const donation = (
   id: string,
   label: string,
   gender: DonationVoice['gender'],
-  filename: string,
-): DonationVoice => ({
-  id,
-  label,
-  gender,
-  clip: { path: `voice-donations/${filename}` },
-});
+  embeddingName: string,
+): DonationVoice => ({ id, label, gender, embeddingName });
 
+/**
+ * All 26 embeddings shipped in the ungated model repo. Gender labels
+ * follow the source material (Les Misérables cast names, LibriVox
+ * narrators) and common name usage.
+ */
 export const DONATION_VOICES: DonationVoice[] = [
-  donation('vd_amelia', 'Amelia', 'female', 'amelia-en.wav'),
-  donation('vd_beatrice', 'Beatrice', 'female', 'beatrice-en.wav'),
-  donation('vd_clara', 'Clara', 'female', 'clara-en.wav'),
-  donation('vd_diana', 'Diana', 'female', 'diana-en.wav'),
-  donation('vd_eve', 'Eve', 'female', 'eve-en.wav'),
-  donation('vd_freya', 'Freya', 'female', 'freya-en.wav'),
-  donation('vd_grace', 'Grace', 'female', 'grace-en.wav'),
-  donation('vd_hana', 'Hana', 'female', 'hana-en.wav'),
-  donation('vd_iris', 'Iris', 'female', 'iris-en.wav'),
-  donation('vd_jade', 'Jade', 'female', 'jade-en.wav'),
-  donation('vd_kira', 'Kira', 'female', 'kira-en.wav'),
-  donation('vd_lena', 'Lena', 'female', 'lena-en.wav'),
-  donation('vd_arthur', 'Arthur', 'male', 'arthur-en.wav'),
-  donation('vd_bram', 'Bram', 'male', 'bram-en.wav'),
-  donation('vd_caleb', 'Caleb', 'male', 'caleb-en.wav'),
-  donation('vd_dorian', 'Dorian', 'male', 'dorian-en.wav'),
-  donation('vd_evan', 'Evan', 'male', 'evan-en.wav'),
-  donation('vd_finn', 'Finn', 'male', 'finn-en.wav'),
-  donation('vd_gareth', 'Gareth', 'male', 'gareth-en.wav'),
-  donation('vd_henry', 'Henry', 'male', 'henry-en.wav'),
-  donation('vd_ivor', 'Ivor', 'male', 'ivor-en.wav'),
-  donation('vd_julian', 'Julian', 'male', 'julian-en.wav'),
-  donation('vd_kade', 'Kade', 'male', 'kade-en.wav'),
-  donation('vd_leon', 'Leon', 'male', 'leon-en.wav'),
+  donation('pd_alba', 'Alba', 'female', 'alba'),
+  donation('pd_anna', 'Anna', 'female', 'anna'),
+  donation('pd_azelma', 'Azelma', 'female', 'azelma'),
+  donation('pd_cosette', 'Cosette', 'female', 'cosette'),
+  donation('pd_eponine', 'Éponine', 'female', 'eponine'),
+  donation('pd_estelle', 'Estelle', 'female', 'estelle'),
+  donation('pd_eve', 'Eve', 'female', 'eve'),
+  donation('pd_fantine', 'Fantine', 'female', 'fantine'),
+  donation('pd_jane', 'Jane', 'female', 'jane'),
+  donation('pd_lola', 'Lola', 'female', 'lola'),
+  donation('pd_mary', 'Mary', 'female', 'mary'),
+  donation('pd_vera', 'Vera', 'female', 'vera'),
+  donation('pd_caro_davy', 'Caro Davy', 'female', 'caro_davy'),
+  donation('pd_bill_boerst', 'Bill Boerst', 'male', 'bill_boerst'),
+  donation('pd_charles', 'Charles', 'male', 'charles'),
+  donation('pd_george', 'George', 'male', 'george'),
+  donation('pd_giovanni', 'Giovanni', 'male', 'giovanni'),
+  donation('pd_javert', 'Javert', 'male', 'javert'),
+  donation('pd_jean', 'Jean', 'male', 'jean'),
+  donation('pd_juergen', 'Juergen', 'male', 'juergen'),
+  donation('pd_marius', 'Marius', 'male', 'marius'),
+  donation('pd_michael', 'Michael', 'male', 'michael'),
+  donation('pd_paul', 'Paul', 'male', 'paul'),
+  donation('pd_peter_yearsley', 'Peter Yearsley', 'male', 'peter_yearsley'),
+  donation('pd_rafael', 'Rafael', 'male', 'rafael'),
+  donation('pd_stuart_bell', 'Stuart Bell', 'male', 'stuart_bell'),
 ];
 
 // ── Lookup helpers ──────────────────────────────────────────────

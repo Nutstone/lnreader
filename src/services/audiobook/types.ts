@@ -26,7 +26,7 @@ export interface LLMConfig {
  * - fp16: half-precision (balanced)
  * - fp32: full precision (largest, highest quality)
  */
-export type TTSPrecision = 'q8' | 'fp16' | 'fp32';
+export type TTSPrecision = 'int8' | 'fp32';
 
 export interface TTSConfig {
   precision: TTSPrecision;
@@ -122,20 +122,19 @@ export interface VoiceClip {
 
 /**
  * Where the speaker's clips come from. Used for telemetry and
- * licensing display only — the runtime treats both sources
- * identically.
+ * licensing display only — the runtime treats sources identically.
  */
-export type EmotionalSpeakerSource = 'expresso' | 'voice-zero';
+export type EmotionalSpeakerSource = 'expresso';
 
 /**
  * A speaker that exposes multiple emotional variants for the same
- * voice identity. This is the disentangled timbre/emotion design
- * the audiobook engine relies on. Both Expresso (4 speakers, CC-BY-NC)
- * and voice-zero (LibriVox-derived, public domain, with Chatterbox-
- * synthesized emotional variants) populate this pool.
+ * voice identity, realized as reference audio clips the on-device
+ * mimi encoder turns into voice-conditioning states. Expresso
+ * (4 speakers, CC-BY-NC, real human emotional speech) populates
+ * this pool with verified file paths in kyutai/tts-voices.
  */
 export interface EmotionalSpeaker {
-  /** Stable speaker ID, e.g. "ex01" or "vz_kristin_hughes". */
+  /** Stable speaker ID, e.g. "ex01". */
   id: string;
   label: string;
   gender: 'male' | 'female';
@@ -147,13 +146,28 @@ export interface EmotionalSpeaker {
   variants: Partial<Record<Emotion, VoiceClip>> & { neutral: VoiceClip };
 }
 
-/** A single-emotion voice from the CC0 donation pool. */
+/**
+ * A single-emotion voice backed by a precomputed prompt state in the
+ * ungated kyutai/pocket-tts-without-voice-cloning repo
+ * (languages/<lang>/embeddings/<name>.safetensors). Small download,
+ * no on-device encoding needed.
+ */
 export interface DonationVoice {
   id: string;
   label: string;
   gender: 'male' | 'female' | 'neutral';
-  clip: VoiceClip;
+  /** Embedding file name in the model repo, e.g. "alba". */
+  embeddingName: string;
 }
+
+/**
+ * What the TTS adapter needs to prepare a voice-conditioning state:
+ * either a named precomputed embedding, or a reference audio clip
+ * to be encoded on device.
+ */
+export type VoiceSpec =
+  | { kind: 'embedding'; name: string }
+  | { kind: 'clip'; clip: VoiceClip };
 
 // ── Voice Assignment ────────────────────────────────────────────
 

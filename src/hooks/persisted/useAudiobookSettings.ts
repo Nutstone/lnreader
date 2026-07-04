@@ -18,10 +18,18 @@ const initialAudiobookSettings: AudiobookSettings = {
   apiKey: '',
   baseUrl: '',
   model: '',
-  ttsPrecision: 'q8',
+  ttsPrecision: 'int8',
   lookaheadSegments: 4,
   mainCharacterEmotionalSlots: 10,
 };
+
+/**
+ * Maps stored precision values (including the pre-rewrite 'q8'/'fp16'
+ * tiers, which no longer exist in the exported bundle) onto the tiers
+ * the bundle actually ships.
+ */
+export const sanitizeTTSPrecision = (value: unknown): TTSPrecision =>
+  value === 'fp32' || value === 'fp16' ? 'fp32' : 'int8';
 
 export const useAudiobookSettings = () => {
   const [audiobookSettings = initialAudiobookSettings, setSettings] =

@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
 
 import { Appbar, List, SafeAreaView } from '@components';
 import { useTheme, useAudiobookSettings } from '@hooks/persisted';
 import { getString } from '@strings/translations';
 import { AudiobookSettingsScreenProps } from '@navigators/types';
-import { Pressable } from 'react-native';
 
 const providers = [
   { key: 'anthropic' as const, label: 'audiobookSettings.providerAnthropic' },
@@ -15,9 +14,8 @@ const providers = [
 ] as const;
 
 const ttsPrecisions = [
-  { key: 'q8' as const, label: 'q8 (Fastest)' },
-  { key: 'fp16' as const, label: 'fp16 (Balanced)' },
-  { key: 'fp32' as const, label: 'fp32 (Best)' },
+  { key: 'int8' as const, label: 'int8 (Fast, ~150 MB)' },
+  { key: 'fp32' as const, label: 'fp32 (Best, ~440 MB)' },
 ] as const;
 
 const AudiobookSettingsScreen = ({

@@ -3,6 +3,7 @@ import { getMMKVObject } from '@utils/mmkv/mmkv';
 import {
   AUDIOBOOK_SETTINGS,
   AudiobookSettings,
+  sanitizeTTSPrecision,
 } from '@hooks/persisted/useAudiobookSettings';
 import { AudiobookPipeline } from './pipeline';
 import { AudioSegment, ChapterAnnotation, AudiobookConfig } from './types';
@@ -66,7 +67,7 @@ export class AudiobookPlayer {
         model: settings.model || undefined,
       },
       tts: {
-        precision: settings.ttsPrecision || 'q8',
+        precision: sanitizeTTSPrecision(settings.ttsPrecision),
         lookaheadSegments: settings.lookaheadSegments ?? 4,
         mainCharacterEmotionalSlots: settings.mainCharacterEmotionalSlots ?? 10,
       },

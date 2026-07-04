@@ -5,9 +5,9 @@ import {
   ChapterAnnotation,
   VoiceMap,
   VoiceAssignment,
-  VoiceClip,
+  VoiceSpec,
 } from './types';
-import { PocketTTSAdapter } from './pocketTTSAdapter';
+import { PocketTTSAdapter, voiceKey } from './pocketTTSAdapter';
 import { ModelDownloader } from './modelDownloader';
 import { AudioCache } from './audioCache';
 import { postProcess } from './audioPostProcessor';
@@ -41,9 +41,8 @@ export class TTSRenderer {
     if (this.initialized) {
       return;
     }
-    const modelPath = await this.downloader.ensureModel(this.config.precision);
-    const tokenizerPath = await this.downloader.ensureTokenizer();
-    await this.adapter.load(modelPath, tokenizerPath);
+    const paths = await this.downloader.ensureBundle(this.config.precision);
+    await this.adapter.load(paths);
     this.initialized = true;
   }
 
@@ -53,10 +52,10 @@ export class TTSRenderer {
   }
 
   /**
-   * Downloads every voice clip referenced in the chapter and warms
-   * the speaker-state cache before rendering starts. Eliminates the
-   * per-speaker first-line stutter (one download + state load per
-   * unique speaker, paid up front in parallel instead of mid-stream).
+   * Downloads every voice file referenced in the chapter and warms
+   * the voice-state cache before rendering starts. Eliminates the
+   * per-speaker first-line stutter (one download + state preparation
+   * per unique voice, paid up front instead of mid-stream).
    */
   async prefetchForChapter(
     annotation: ChapterAnnotation,
@@ -67,26 +66,20 @@ export class TTSRenderer {
     }
 
     const resolveAssignment = buildAssignmentResolver(voiceMap);
-    const seen = new Set<string>();
-    const clips: VoiceClip[] = [];
+    const specs = new Map<string, VoiceSpec>();
     for (const segment of annotation.segments) {
       const assignment = resolveAssignment(segment.speaker);
       if (!assignment) {
         continue;
       }
-      const clip = this.resolveClip(assignment, segment.emotion);
-      const key = `${clip.baseUrl ?? ''}|${clip.path}`;
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      clips.push(clip);
+      const spec = this.resolveVoiceSpec(assignment, segment.emotion);
+      specs.set(voiceKey(spec), spec);
     }
 
     await Promise.all(
-      clips.map(async clip => {
-        const localPath = await this.downloader.ensureVoiceClip(clip);
-        await this.adapter.loadSpeakerState(localPath);
+      [...specs.values()].map(async spec => {
+        const localPath = await this.ensureVoiceFile(spec);
+        await this.adapter.prepareVoiceState(spec, localPath);
       }),
     );
   }
@@ -100,9 +93,8 @@ export class TTSRenderer {
       throw new Error('TTSRenderer not initialized. Call initialize() first.');
     }
 
-    const clip = this.resolveClip(assignment, emotion);
-    const clipPath = await this.downloader.ensureVoiceClip(clip);
-    const cacheKey = AudioCache.keyFor(text, clipPath);
+    const spec = this.resolveVoiceSpec(assignment, emotion);
+    const cacheKey = AudioCache.keyFor(text, voiceKey(spec));
     const audioPath = this.audioCache.pathFor(cacheKey);
 
     if (this.audioCache.has(cacheKey)) {
@@ -115,10 +107,11 @@ export class TTSRenderer {
       };
     }
 
-    const speakerState = await this.adapter.loadSpeakerState(clipPath);
+    const localPath = await this.ensureVoiceFile(spec);
+    const voiceState = await this.adapter.prepareVoiceState(spec, localPath);
     const { samples, sampleRate } = await this.adapter.synthesize(
       text,
-      speakerState,
+      voiceState,
     );
     const processed = postProcess(samples);
 
@@ -182,16 +175,16 @@ export class TTSRenderer {
   }
 
   /**
-   * Resolves the actual voice clip for a (character, emotion) pair.
-   * Emotional assignments pick the variant matching the segment's
-   * emotion (with neutral fallback). Donation assignments use the
-   * single clip regardless of emotion — they have no emotional
-   * variants by design.
+   * Resolves the voice spec for a (character, emotion) pair.
+   * Emotional assignments pick the reference clip matching the
+   * segment's emotion (neutral fallback); donation assignments use
+   * the precomputed prompt state regardless of emotion — they have
+   * no emotional variants by design.
    */
-  private resolveClip(
+  private resolveVoiceSpec(
     assignment: VoiceAssignment,
     emotion: Emotion,
-  ): VoiceClip {
+  ): VoiceSpec {
     if (assignment.kind === 'emotional') {
       const speaker = findEmotionalSpeaker(assignment.speakerId);
       if (!speaker) {
@@ -199,7 +192,7 @@ export class TTSRenderer {
           `Unknown emotional speaker in voice map: ${assignment.speakerId}`,
         );
       }
-      return emotionalVariantClip(speaker, emotion);
+      return { kind: 'clip', clip: emotionalVariantClip(speaker, emotion) };
     }
     const voice = findDonationVoice(assignment.voiceId);
     if (!voice) {
@@ -207,7 +200,13 @@ export class TTSRenderer {
         `Unknown donation voice in voice map: ${assignment.voiceId}`,
       );
     }
-    return voice.clip;
+    return { kind: 'embedding', name: voice.embeddingName };
+  }
+
+  private async ensureVoiceFile(spec: VoiceSpec): Promise<string> {
+    return spec.kind === 'embedding'
+      ? this.downloader.ensureVoiceEmbedding(spec.name)
+      : this.downloader.ensureVoiceClip(spec.clip);
   }
 }
 
@@ -275,14 +274,21 @@ const writeString = (view: DataView, offset: number, str: string) => {
 
 const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
   const bytes = new Uint8Array(buffer);
-  const CHUNK_SIZE = 8192;
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i += CHUNK_SIZE) {
-    const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.byteLength));
-    binary += String.fromCharCode(...chunk);
+  const parts: string[] = [];
+  const abc =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  /* eslint-disable no-bitwise */
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    parts.push(
+      abc[b0 >> 2] +
+        abc[((b0 & 3) << 4) | (b1 >> 4)] +
+        (i + 1 < bytes.length ? abc[((b1 & 15) << 2) | (b2 >> 6)] : '=') +
+        (i + 2 < bytes.length ? abc[b2 & 63] : '='),
+    );
   }
-  if (typeof btoa === 'function') {
-    return btoa(binary);
-  }
-  return Buffer.from(binary, 'binary').toString('base64');
+  /* eslint-enable no-bitwise */
+  return parts.join('');
 };

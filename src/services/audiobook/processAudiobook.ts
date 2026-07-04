@@ -10,6 +10,7 @@ import { getMMKVObject } from '@utils/mmkv/mmkv';
 import {
   AudiobookSettings,
   AUDIOBOOK_SETTINGS,
+  sanitizeTTSPrecision,
 } from '@hooks/persisted/useAudiobookSettings';
 
 export const processAudiobook = async (
@@ -41,7 +42,7 @@ export const processAudiobook = async (
         model: settings?.model || undefined,
       },
       tts: {
-        precision: settings?.ttsPrecision ?? 'q8',
+        precision: sanitizeTTSPrecision(settings?.ttsPrecision),
         lookaheadSegments: settings?.lookaheadSegments ?? 4,
         mainCharacterEmotionalSlots:
           settings?.mainCharacterEmotionalSlots ?? 10,

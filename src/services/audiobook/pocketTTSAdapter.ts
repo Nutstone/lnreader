@@ -1,109 +1,124 @@
 /**
- * PocketTTSAdapter — wraps onnxruntime-react-native for Pocket TTS.
+ * PocketTTSAdapter — binds the runtime-agnostic PocketTTSEngine to
+ * React Native: onnxruntime-react-native for inference and
+ * react-native-file-access for lossless binary file reads.
  *
- * Pocket TTS is an autoregressive token-based TTS:
- *   text → tokenizer → text token ids
- *   speaker prompt → encoded speaker state (precomputed per voice)
- *   model.run({ text, speaker_state }) → audio samples (float32 @ 24kHz)
- *
- * ── KNOWN GAP (verified against Hugging Face, 2026-07) ──────────
- * kyutai ships NO ONNX export of Pocket TTS. kyutai/pocket-tts and
- * the ungated kyutai/pocket-tts-without-voice-cloning contain only
- * safetensors weights (`tts_b6369a24.safetensors`), a SentencePiece
- * `tokenizer.model` (not the tokenizer.json this adapter reads),
- * and precomputed speaker embeddings under `embeddings_v3/` as
- * safetensors. Until the project produces and hosts its own ONNX
- * export (with the tensor I/O names below) plus a JSON tokenizer —
- * or this adapter is rewritten around the real artifacts — this
- * class cannot run against a downloadable model. The surrounding
- * pipeline treats it as an injectable seam.
+ * Voice-conditioning states are cached per VoiceSpec key, so a
+ * character's voice is prepared once per session and reused across
+ * segments and chapters.
  */
 
-import { InferenceSession, Tensor } from 'onnxruntime-react-native';
+import * as ort from 'onnxruntime-react-native';
 import { FileSystem } from 'react-native-file-access';
+import { PocketTTSEngine, BundleMetadata, OrtModule } from './pocketTTS/engine';
 import NativeFile from '@specs/NativeFile';
+import type { BundlePaths } from './modelDownloader';
+import type { VoiceSpec } from './types';
 
-const TEXT_INPUT_NAME = 'text_tokens';
-const SPEAKER_INPUT_NAME = 'speaker_state';
-const AUDIO_OUTPUT_NAME = 'audio';
-const SAMPLE_RATE = 24000;
+/**
+ * Voice prompts only need a short stretch of reference audio; longer
+ * clips just cost encode time. Matches what the reference runtime's
+ * predefined states were built from (~10-20s prompts).
+ */
+const MAX_CLONE_SECONDS = 15;
+
+type VoiceState = Awaited<
+  ReturnType<PocketTTSEngine['voiceStateFromSafetensors']>
+>;
 
 export class PocketTTSAdapter {
-  private session: InferenceSession | null = null;
-  private speakerStateCache = new Map<string, Float32Array>();
-  private tokenizer: SimpleTokenizer | null = null;
+  private engine: PocketTTSEngine | null = null;
+  private voiceStateCache = new Map<string, VoiceState>();
 
-  async load(modelPath: string, tokenizerPath: string): Promise<void> {
-    if (this.session) {
+  get sampleRate(): number {
+    return this.engine?.sampleRate ?? 24000;
+  }
+
+  get loaded(): boolean {
+    return this.engine !== null;
+  }
+
+  async load(paths: BundlePaths): Promise<void> {
+    if (this.engine) {
       return;
     }
-    this.session = await InferenceSession.create(modelPath);
-    this.tokenizer = await SimpleTokenizer.fromFile(tokenizerPath);
+    const metadata = JSON.parse(
+      NativeFile.readFile(paths.metadata),
+    ) as BundleMetadata;
+    this.engine = await PocketTTSEngine.load(
+      ort as unknown as OrtModule,
+      metadata,
+      {
+        flowLmMain: paths.flowLmMain,
+        flowLmFlow: paths.flowLmFlow,
+        mimiDecoder: paths.mimiDecoder,
+        mimiEncoder: paths.mimiEncoder,
+        textConditioner: paths.textConditioner,
+      },
+      readFileBytes,
+      paths.tokenizer,
+      paths.bosBeforeVoice,
+    );
   }
 
   async unload(): Promise<void> {
-    if (this.session) {
-      await this.session.release?.();
-    }
-    this.session = null;
-    this.speakerStateCache.clear();
-    this.tokenizer = null;
+    await this.engine?.release();
+    this.engine = null;
+    this.voiceStateCache.clear();
   }
 
   /**
-   * Loads a precomputed speaker state (raw little-endian float32)
-   * from disk, reading the bytes losslessly via base64. Cached after
-   * the first call. See file-level note about the assumed format.
+   * Prepares (and caches) the voice-conditioning state for a spec.
+   * `localPath` is the already-downloaded file for the spec.
    */
-  async loadSpeakerState(voiceClipPath: string): Promise<Float32Array> {
-    const cached = this.speakerStateCache.get(voiceClipPath);
+  async prepareVoiceState(
+    spec: VoiceSpec,
+    localPath: string,
+  ): Promise<VoiceState> {
+    const engine = this.requireEngine();
+    const key = voiceKey(spec);
+    const cached = this.voiceStateCache.get(key);
     if (cached) {
       return cached;
     }
-    const base64 = await FileSystem.readFile(voiceClipPath, 'base64');
-    const bytes = base64ToBytes(base64);
-    const floats = new Float32Array(
-      bytes.buffer,
-      bytes.byteOffset,
-      Math.floor(bytes.byteLength / 4),
-    );
-    this.speakerStateCache.set(voiceClipPath, floats);
-    return floats;
+    const bytes = await readFileBytes(localPath);
+    const state =
+      spec.kind === 'embedding'
+        ? await engine.voiceStateFromSafetensors(bytes)
+        : await engine.voiceStateFromWav(bytes, MAX_CLONE_SECONDS);
+    this.voiceStateCache.set(key, state);
+    return state;
   }
 
-  /** Run the TTS model and return mono float32 PCM samples. */
+  /** Synthesizes text with a prepared voice state → mono f32 PCM. */
   async synthesize(
     text: string,
-    speakerState: Float32Array,
+    voiceState: VoiceState,
   ): Promise<{ samples: Float32Array; sampleRate: number }> {
-    if (!this.session || !this.tokenizer) {
+    const engine = this.requireEngine();
+    const samples = await engine.synthesize(text, voiceState);
+    return { samples, sampleRate: engine.sampleRate };
+  }
+
+  private requireEngine(): PocketTTSEngine {
+    if (!this.engine) {
       throw new Error('PocketTTSAdapter not loaded');
     }
-
-    const tokens = this.tokenizer.encode(text);
-    const tokenTensor = new Tensor(
-      'int64',
-      BigInt64Array.from(tokens, t => BigInt(t)),
-      [1, tokens.length],
-    );
-    const speakerTensor = new Tensor('float32', speakerState, [
-      1,
-      speakerState.length,
-    ]);
-
-    const result = await this.session.run({
-      [TEXT_INPUT_NAME]: tokenTensor,
-      [SPEAKER_INPUT_NAME]: speakerTensor,
-    });
-
-    return {
-      samples: result[AUDIO_OUTPUT_NAME].data as Float32Array,
-      sampleRate: SAMPLE_RATE,
-    };
+    return this.engine;
   }
 }
 
-// ── Base64 ──────────────────────────────────────────────────────
+export const voiceKey = (spec: VoiceSpec): string =>
+  spec.kind === 'embedding'
+    ? `embedding:${spec.name}`
+    : `clip:${spec.clip.baseUrl ?? ''}|${spec.clip.path}`;
+
+// ── RN file reading ─────────────────────────────────────────────
+
+async function readFileBytes(path: string): Promise<Uint8Array> {
+  const base64 = await FileSystem.readFile(path, 'base64');
+  return base64ToBytes(base64);
+}
 
 /* eslint-disable no-bitwise */
 const B64_LOOKUP = (() => {
@@ -116,7 +131,7 @@ const B64_LOOKUP = (() => {
   return table;
 })();
 
-const base64ToBytes = (base64: string): Uint8Array => {
+export const base64ToBytes = (base64: string): Uint8Array => {
   const clean = base64.replace(/[\r\n=]+/g, '');
   const out = new Uint8Array(Math.floor((clean.length * 3) / 4));
   let outIndex = 0;
@@ -137,57 +152,3 @@ const base64ToBytes = (base64: string): Uint8Array => {
   return out.subarray(0, outIndex);
 };
 /* eslint-enable no-bitwise */
-
-// ── Tokenizer ───────────────────────────────────────────────────
-
-/**
- * Minimal tokenizer that reads a Hugging Face tokenizer.json and
- * encodes via greedy longest-match against the vocab map. Sufficient
- * for audiobook narration; swap in a full BPE if you hit accuracy
- * issues on unusual text.
- */
-class SimpleTokenizer {
-  private vocab: Map<string, number>;
-  private bos: number;
-  private eos: number;
-
-  constructor(vocab: Map<string, number>, bos: number, eos: number) {
-    this.vocab = vocab;
-    this.bos = bos;
-    this.eos = eos;
-  }
-
-  static async fromFile(path: string): Promise<SimpleTokenizer> {
-    const raw = NativeFile.readFile(path);
-    const json = JSON.parse(raw) as {
-      model: { vocab: Record<string, number> };
-      added_tokens?: Array<{ id: number; content: string }>;
-    };
-    const vocab = new Map<string, number>(Object.entries(json.model.vocab));
-    const bos = json.added_tokens?.find(t => t.content === '<s>')?.id ?? 1;
-    const eos = json.added_tokens?.find(t => t.content === '</s>')?.id ?? 2;
-    return new SimpleTokenizer(vocab, bos, eos);
-  }
-
-  encode(text: string): number[] {
-    const tokens: number[] = [this.bos];
-    let i = 0;
-    while (i < text.length) {
-      let matched = false;
-      for (let len = Math.min(16, text.length - i); len >= 1; len--) {
-        const id = this.vocab.get(text.slice(i, i + len));
-        if (id !== undefined) {
-          tokens.push(id);
-          i += len;
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        i++;
-      }
-    }
-    tokens.push(this.eos);
-    return tokens;
-  }
-}
