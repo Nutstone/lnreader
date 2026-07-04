@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - master
+      # Temporary: pre-merge APK builds for on-device testing of the
+      # audiobook TTS engine. Remove when merging to master.
+      - claude/review-ai-coding-changes-6m2tlg
   workflow_dispatch:
 
 concurrency:
