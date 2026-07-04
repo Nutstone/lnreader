@@ -3,6 +3,7 @@ import {
   Emotion,
   AudioSegment,
   ChapterAnnotation,
+  TTSSetupProgress,
   VoiceMap,
   VoiceAssignment,
   VoiceSpec,
@@ -29,6 +30,15 @@ export class TTSRenderer {
   private downloader: ModelDownloader;
   private audioCache: AudioCache;
   private initialized = false;
+  /**
+   * Serializes initialize/dispose so a dispose that begins while the
+   * model is (down)loading runs strictly after the load completes —
+   * otherwise the load would finish after teardown and leak the ONNX
+   * sessions (native memory, never GC'd).
+   */
+  private lifecycleChain: Promise<void> = Promise.resolve();
+  /** In-flight synthesis/prefetch work; dispose waits for it. */
+  private pendingWork = new Set<Promise<void>>();
 
   constructor(config: TTSConfig, cacheDir: string) {
     this.config = config;
@@ -37,18 +47,52 @@ export class TTSRenderer {
     this.audioCache = new AudioCache(`${cacheDir}/audio`);
   }
 
-  async initialize(): Promise<void> {
-    if (this.initialized) {
-      return;
-    }
-    const paths = await this.downloader.ensureBundle(this.config.precision);
-    await this.adapter.load(paths);
-    this.initialized = true;
+  private serializeLifecycle<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.lifecycleChain.then(op, op);
+    this.lifecycleChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private track<T>(promise: Promise<T>): Promise<T> {
+    const settled = promise.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.pendingWork.add(settled);
+    settled.then(() => this.pendingWork.delete(settled));
+    return promise;
+  }
+
+  async initialize(
+    onProgress?: (progress: TTSSetupProgress) => void,
+  ): Promise<void> {
+    return this.serializeLifecycle(async () => {
+      if (this.initialized) {
+        return;
+      }
+      const paths = await this.downloader.ensureBundle(
+        this.config.precision,
+        p => onProgress?.({ stage: 'bundle', ...p }),
+      );
+      onProgress?.({ stage: 'model-load' });
+      await this.adapter.load(paths);
+      this.initialized = true;
+    });
   }
 
   async dispose(): Promise<void> {
-    await this.adapter.unload();
-    this.initialized = false;
+    return this.serializeLifecycle(async () => {
+      // Releasing a session that a lookahead render is still running
+      // on is a native use-after-free; wait the stragglers out.
+      while (this.pendingWork.size > 0) {
+        await Promise.all([...this.pendingWork]);
+      }
+      await this.adapter.unload();
+      this.initialized = false;
+    });
   }
 
   /**
@@ -60,6 +104,7 @@ export class TTSRenderer {
   async prefetchForChapter(
     annotation: ChapterAnnotation,
     voiceMap: VoiceMap,
+    onProgress?: (progress: TTSSetupProgress) => void,
   ): Promise<void> {
     if (!this.initialized) {
       throw new Error('TTSRenderer not initialized. Call initialize() first.');
@@ -76,11 +121,18 @@ export class TTSRenderer {
       specs.set(voiceKey(spec), spec);
     }
 
-    await Promise.all(
-      [...specs.values()].map(async spec => {
-        const localPath = await this.ensureVoiceFile(spec);
-        await this.adapter.prepareVoiceState(spec, localPath);
-      }),
+    const total = specs.size;
+    let done = 0;
+    onProgress?.({ stage: 'voices', done, total });
+    await this.track(
+      Promise.all(
+        [...specs.values()].map(async spec => {
+          const localPath = await this.ensureVoiceFile(spec);
+          await this.adapter.prepareVoiceState(spec, localPath);
+          done++;
+          onProgress?.({ stage: 'voices', done, total });
+        }),
+      ).then(() => undefined),
     );
   }
 
@@ -92,7 +144,14 @@ export class TTSRenderer {
     if (!this.initialized) {
       throw new Error('TTSRenderer not initialized. Call initialize() first.');
     }
+    return this.track(this.renderSegmentInner(text, assignment, emotion));
+  }
 
+  private async renderSegmentInner(
+    text: string,
+    assignment: VoiceAssignment,
+    emotion: Emotion,
+  ): Promise<AudioSegment> {
     const spec = this.resolveVoiceSpec(assignment, emotion);
     const cacheKey = AudioCache.keyFor(text, voiceKey(spec));
     const audioPath = this.audioCache.pathFor(cacheKey);

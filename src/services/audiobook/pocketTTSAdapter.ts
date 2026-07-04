@@ -22,6 +22,17 @@ import type { VoiceSpec } from './types';
  */
 const MAX_CLONE_SECONDS = 15;
 
+/**
+ * ORT defaults to one intra-op thread per core. On big.LITTLE phones
+ * that drags the autoregressive loop onto the slow cluster and
+ * starves the UI thread; four threads ≈ the big-core cluster on
+ * common SoCs. Tune against measured on-device RTF before changing.
+ */
+const SESSION_OPTIONS = {
+  intraOpNumThreads: 4,
+  graphOptimizationLevel: 'all',
+} as const;
+
 type VoiceState = Awaited<
   ReturnType<PocketTTSEngine['voiceStateFromSafetensors']>
 >;
@@ -58,6 +69,7 @@ export class PocketTTSAdapter {
       readFileBytes,
       paths.tokenizer,
       paths.bosBeforeVoice,
+      { sessionOptions: SESSION_OPTIONS },
     );
   }
 

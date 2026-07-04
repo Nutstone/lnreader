@@ -218,6 +218,24 @@ export interface PipelineProgress {
   progress: number;
 }
 
+/**
+ * Progress of the one-time TTS setup that runs before a chapter can
+ * start playing: downloading the model bundle (the dominant cost on
+ * first run — up to hundreds of MB), creating the ONNX sessions, and
+ * preparing the voices used by the chapter.
+ */
+export type TTSSetupProgress =
+  | {
+      stage: 'bundle';
+      file: string;
+      fraction: number;
+      doneBytes: number;
+      totalBytes: number;
+    }
+  | { stage: 'model-load' }
+  | { stage: 'voices'; done: number; total: number }
+  | { stage: 'synthesis' };
+
 // ── LLM Message Format ──────────────────────────────────────────
 
 export interface LLMMessage {

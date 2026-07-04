@@ -479,11 +479,36 @@ window.audiobook = {
   started: false,
   playing: false,
   _highlightedElement: null,
+  _statusElement: null,
   start: function () {
     this.started = true;
     this.playing = true;
     var text = reader.chapterElement.innerText;
     reader.post({ type: 'audiobook-start', data: text });
+  },
+  // Small overlay showing setup progress ("Downloading TTS model…").
+  // Driven from native via injectJavaScript; '' hides it.
+  setStatus: function (message) {
+    if (!message) {
+      if (this._statusElement && this._statusElement.parentNode) {
+        this._statusElement.parentNode.removeChild(this._statusElement);
+      }
+      this._statusElement = null;
+      return;
+    }
+    if (!this._statusElement) {
+      var el = document.createElement('div');
+      el.id = 'audiobook-status';
+      el.style.cssText =
+        'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
+        'max-width:80%;padding:8px 16px;border-radius:16px;' +
+        'background:rgba(0,0,0,0.75);color:#fff;font-size:14px;' +
+        'z-index:1000;text-align:center;white-space:nowrap;' +
+        'overflow:hidden;text-overflow:ellipsis;';
+      document.body.appendChild(el);
+      this._statusElement = el;
+    }
+    this._statusElement.textContent = message;
   },
   pause: function () {
     this.playing = false;
@@ -499,6 +524,7 @@ window.audiobook = {
     this.started = false;
     this.playing = false;
     this.clearHighlight();
+    this.setStatus('');
     reader.post({ type: 'audiobook-stop' });
     reader.post({ type: 'tts-state', data: { isReading: false } });
   },

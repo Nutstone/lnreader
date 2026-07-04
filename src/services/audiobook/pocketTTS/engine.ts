@@ -106,6 +106,12 @@ export interface EngineOptions {
   random?: () => number;
   /** mimi decode chunk size in frames. */
   decodeChunkFrames?: number;
+  /**
+   * Passed verbatim to every `InferenceSession.create` call, so the
+   * host can tune the runtime (thread counts, optimization level,
+   * execution providers) without the engine knowing the ORT flavor.
+   */
+  sessionOptions?: unknown;
 }
 
 const TOKENS_PER_SECOND_ESTIMATE = 3.0;
@@ -172,14 +178,15 @@ export class PocketTTSEngine {
   ): Promise<PocketTTSEngine> {
     const tokenizer = new SentencePieceProcessor(await readFile(tokenizerPath));
 
+    const sessionOptions = options.sessionOptions;
     const [flowLmMain, flowLmFlow, mimiDecoder, textConditioner, mimiEncoder] =
       await Promise.all([
-        ort.InferenceSession.create(modelPaths.flowLmMain),
-        ort.InferenceSession.create(modelPaths.flowLmFlow),
-        ort.InferenceSession.create(modelPaths.mimiDecoder),
-        ort.InferenceSession.create(modelPaths.textConditioner),
+        ort.InferenceSession.create(modelPaths.flowLmMain, sessionOptions),
+        ort.InferenceSession.create(modelPaths.flowLmFlow, sessionOptions),
+        ort.InferenceSession.create(modelPaths.mimiDecoder, sessionOptions),
+        ort.InferenceSession.create(modelPaths.textConditioner, sessionOptions),
         modelPaths.mimiEncoder
-          ? ort.InferenceSession.create(modelPaths.mimiEncoder)
+          ? ort.InferenceSession.create(modelPaths.mimiEncoder, sessionOptions)
           : Promise.resolve(null),
       ]);
 

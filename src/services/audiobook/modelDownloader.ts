@@ -30,31 +30,58 @@ const VOICE_REPO_BASE = 'https://huggingface.co/kyutai/tts-voices/resolve/main';
 
 export const BUNDLE_LANGUAGE = 'english_2026-04';
 
-/** Files that make up a runnable bundle, per precision tier. */
-const BUNDLE_FILES: Record<TTSPrecision, string[]> = {
+/**
+ * Files that make up a runnable bundle, per precision tier, with
+ * their approximate sizes (measured from the upstream repo, 2026-07).
+ * Sizes only weight the progress fraction — a drifted upstream file
+ * still downloads fine, the bar is just slightly off.
+ */
+interface BundleFile {
+  name: string;
+  bytes: number;
+}
+
+const SHARED_FILES: BundleFile[] = [
+  { name: 'bundle.json', bytes: 24_400 },
+  { name: 'tokenizer.model', bytes: 59_300 },
+  { name: 'bos_before_voice.npy', bytes: 4_200 },
+];
+
+const BUNDLE_FILES: Record<TTSPrecision, BundleFile[]> = {
   // ~146 MB total
   int8: [
-    'bundle.json',
-    'tokenizer.model',
-    'bos_before_voice.npy',
-    'flow_lm_main_int8.onnx',
-    'flow_lm_flow_int8.onnx',
-    'mimi_decoder_int8.onnx',
-    'mimi_encoder_int8.onnx',
-    'text_conditioner_int8.onnx',
+    ...SHARED_FILES,
+    { name: 'flow_lm_main_int8.onnx', bytes: 76_341_000 },
+    { name: 'flow_lm_flow_int8.onnx', bytes: 9_963_000 },
+    { name: 'mimi_decoder_int8.onnx', bytes: 22_684_000 },
+    { name: 'mimi_encoder_int8.onnx', bytes: 20_780_000 },
+    { name: 'text_conditioner_int8.onnx', bytes: 16_388_000 },
   ],
   // ~440 MB total
   fp32: [
-    'bundle.json',
-    'tokenizer.model',
-    'bos_before_voice.npy',
-    'flow_lm_main.onnx',
-    'flow_lm_flow.onnx',
-    'mimi_decoder.onnx',
-    'mimi_encoder.onnx',
-    'text_conditioner.onnx',
+    ...SHARED_FILES,
+    { name: 'flow_lm_main.onnx', bytes: 302_742_000 },
+    { name: 'flow_lm_flow.onnx', bytes: 39_097_000 },
+    { name: 'mimi_decoder.onnx', bytes: 41_472_000 },
+    { name: 'mimi_encoder.onnx', bytes: 39_768_000 },
+    { name: 'text_conditioner.onnx', bytes: 16_388_000 },
   ],
 };
+
+export interface BundleDownloadProgress {
+  /** File currently being fetched ('' once everything is present). */
+  file: string;
+  /** Fraction of total bundle bytes already present, 0..1. */
+  fraction: number;
+  /**
+   * Bytes of completed files — the in-progress file is not counted
+   * (the native downloader has no byte-level callbacks), so display
+   * these as "X / Y MB" rather than a percent that appears frozen
+   * while the dominant model file transfers.
+   */
+  doneBytes: number;
+  totalBytes: number;
+}
 
 export interface BundlePaths {
   dir: string;
@@ -77,23 +104,33 @@ export class ModelDownloader {
 
   /**
    * Ensures every file of the bundle is present locally and returns
-   * their paths. Progress is reported per file.
+   * their paths. Progress is byte-weighted across files and resumes
+   * at file granularity: already-downloaded files are skipped, so an
+   * interrupted first run only re-fetches the file it died on.
    */
   async ensureBundle(
     precision: TTSPrecision,
-    onProgress?: (file: string, index: number, total: number) => void,
+    onProgress?: (progress: BundleDownloadProgress) => void,
   ): Promise<BundlePaths> {
     const files = BUNDLE_FILES[precision] ?? BUNDLE_FILES.int8;
     const bundleDir = `bundles/${BUNDLE_LANGUAGE}`;
+    const totalBytes = files.reduce((sum, f) => sum + f.bytes, 0);
     const local: Record<string, string> = {};
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      onProgress?.(file, i, files.length);
-      local[file] = await this.ensureRemote(
-        `${BUNDLE_REPO_BASE}/onnx/${BUNDLE_LANGUAGE}/${file}`,
-        `${bundleDir}/${file}`,
+    let doneBytes = 0;
+    for (const file of files) {
+      onProgress?.({
+        file: file.name,
+        fraction: doneBytes / totalBytes,
+        doneBytes,
+        totalBytes,
+      });
+      local[file.name] = await this.ensureRemote(
+        `${BUNDLE_REPO_BASE}/onnx/${BUNDLE_LANGUAGE}/${file.name}`,
+        `${bundleDir}/${file.name}`,
       );
+      doneBytes += file.bytes;
     }
+    onProgress?.({ file: '', fraction: 1, doneBytes: totalBytes, totalBytes });
     const suffix = precision === 'int8' ? '_int8' : '';
     return {
       dir: `${this.cacheDir}/${bundleDir}`,
@@ -151,7 +188,24 @@ export class ModelDownloader {
     if (NativeFile.exists(partPath)) {
       NativeFile.unlink(partPath);
     }
-    await NativeFile.downloadFile(url, partPath, 'GET', {});
+    try {
+      await NativeFile.downloadFile(url, partPath, 'GET', {});
+    } catch (error) {
+      // Never leave a truncated .part behind; the next attempt would
+      // delete it anyway, but a clean failure keeps cache dirs tidy.
+      try {
+        if (NativeFile.exists(partPath)) {
+          NativeFile.unlink(partPath);
+        }
+      } catch {
+        // Cleanup is best-effort.
+      }
+      throw new Error(
+        `Download failed for ${url}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
     NativeFile.moveFile(partPath, localPath);
     return localPath;
   }

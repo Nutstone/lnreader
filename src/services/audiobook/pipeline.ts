@@ -5,6 +5,7 @@ import {
   ChapterInput,
   CharacterGlossary,
   ChapterAnnotation,
+  TTSSetupProgress,
   VoiceMap,
   VoiceAssignment,
   AudioSegment,
@@ -153,17 +154,23 @@ export class AudiobookPipeline {
 
   async *streamChapterAudio(
     annotation: ChapterAnnotation,
+    onSetupProgress?: (progress: TTSSetupProgress) => void,
   ): AsyncGenerator<AudioSegment> {
     const voiceMap = await this.getVoiceMap();
     if (!voiceMap) {
       throw new Error('No voice map found. Run processNovel() first.');
     }
 
-    await this.renderer.initialize();
+    await this.renderer.initialize(onSetupProgress);
     // Pre-warm voice clips + speaker states for every speaker that
     // appears in this chapter so the first segment of each new
     // character doesn't pay for download + state load mid-stream.
-    await this.renderer.prefetchForChapter(annotation, voiceMap);
+    await this.renderer.prefetchForChapter(
+      annotation,
+      voiceMap,
+      onSetupProgress,
+    );
+    onSetupProgress?.({ stage: 'synthesis' });
     // The renderer is intentionally NOT disposed here — model load
     // is expensive and mid-novel pause/resume should keep it warm.
     // Call `disposeRenderer()` when switching novels or tearing down.
