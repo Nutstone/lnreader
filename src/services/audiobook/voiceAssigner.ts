@@ -106,6 +106,17 @@ export class VoiceAssigner {
       mappings[character.name] = this.assignDonationVoice(character);
     }
 
+    // Map aliases to the same assignment so segments the annotator
+    // attributes to an alias don't fall back to the narrator voice.
+    for (const character of glossary.characters) {
+      const assignment = mappings[character.name];
+      for (const alias of character.aliases ?? []) {
+        if (!mappings[alias]) {
+          mappings[alias] = assignment;
+        }
+      }
+    }
+
     return {
       novelId: glossary.novelId,
       schemaVersion: VOICE_BANK_SCHEMA_VERSION,

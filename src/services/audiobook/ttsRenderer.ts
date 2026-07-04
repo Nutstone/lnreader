@@ -66,11 +66,11 @@ export class TTSRenderer {
       throw new Error('TTSRenderer not initialized. Call initialize() first.');
     }
 
+    const resolveAssignment = buildAssignmentResolver(voiceMap);
     const seen = new Set<string>();
     const clips: VoiceClip[] = [];
     for (const segment of annotation.segments) {
-      const assignment =
-        voiceMap.mappings[segment.speaker] ?? voiceMap.mappings.narrator;
+      const assignment = resolveAssignment(segment.speaker);
       if (!assignment) {
         continue;
       }
@@ -123,7 +123,7 @@ export class TTSRenderer {
     const processed = postProcess(samples);
 
     const wavBytes = encodeWav(processed, sampleRate);
-    this.audioCache.set(cacheKey, arrayBufferToBase64(wavBytes));
+    await this.audioCache.set(cacheKey, arrayBufferToBase64(wavBytes));
 
     return {
       pauseBeforeMs: 0,
@@ -144,13 +144,14 @@ export class TTSRenderer {
 
     const { segments } = annotation;
     const lookahead = this.config.lookaheadSegments;
+    const resolveAssignment = buildAssignmentResolver(voiceMap);
     const renderQueue: Promise<AudioSegment>[] = [];
 
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
-      const assignment =
-        voiceMap.mappings[segment.speaker] ?? voiceMap.mappings.narrator;
-      const pauseBeforeMs = PAUSE_DURATIONS[segment.pauseBefore];
+      const assignment = resolveAssignment(segment.speaker);
+      const pauseBeforeMs =
+        PAUSE_DURATIONS[segment.pauseBefore] ?? PAUSE_DURATIONS.medium;
 
       const renderPromise = this.renderSegment(
         segment.text,
@@ -161,6 +162,11 @@ export class TTSRenderer {
         pauseBeforeMs,
         speaker: segment.speaker,
       }));
+      // A queued promise may reject while an earlier one is being
+      // awaited; register a handler so that never surfaces as an
+      // unhandled rejection. The rejection still propagates when the
+      // promise is shifted below.
+      renderPromise.catch(() => {});
 
       renderQueue.push(renderPromise);
 
@@ -182,7 +188,10 @@ export class TTSRenderer {
    * single clip regardless of emotion — they have no emotional
    * variants by design.
    */
-  private resolveClip(assignment: VoiceAssignment, emotion: Emotion): VoiceClip {
+  private resolveClip(
+    assignment: VoiceAssignment,
+    emotion: Emotion,
+  ): VoiceClip {
     if (assignment.kind === 'emotional') {
       const speaker = findEmotionalSpeaker(assignment.speakerId);
       if (!speaker) {
@@ -201,6 +210,24 @@ export class TTSRenderer {
     return voice.clip;
   }
 }
+
+// ── Speaker resolution ──────────────────────────────────────────
+
+/**
+ * Looks up a segment speaker in the voice map: exact name first,
+ * then case-insensitive, then the narrator. The annotator is told
+ * to use canonical glossary names, but LLM output drifts.
+ */
+const buildAssignmentResolver = (voiceMap: VoiceMap) => {
+  const byLowerName = new Map<string, VoiceAssignment>();
+  for (const [name, assignment] of Object.entries(voiceMap.mappings)) {
+    byLowerName.set(name.toLowerCase(), assignment);
+  }
+  return (speaker: string): VoiceAssignment =>
+    voiceMap.mappings[speaker] ??
+    byLowerName.get(speaker.toLowerCase()) ??
+    voiceMap.mappings.narrator;
+};
 
 // ── WAV encoding ────────────────────────────────────────────────
 
@@ -230,7 +257,11 @@ const encodeWav = (samples: Float32Array, sampleRate: number): ArrayBuffer => {
   let offset = 44;
   for (let i = 0; i < samples.length; i++) {
     const clamped = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+    view.setInt16(
+      offset,
+      clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff,
+      true,
+    );
     offset += 2;
   }
   return buffer;

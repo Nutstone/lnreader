@@ -114,9 +114,12 @@ export default class ServiceManager {
       return false;
     }
     return (
-      ['DOWNLOAD_CHAPTER', 'IMPORT_EPUB', 'MIGRATE_NOVEL'] as Array<
-        BackgroundTask['name']
-      >
+      [
+        'DOWNLOAD_CHAPTER',
+        'IMPORT_EPUB',
+        'MIGRATE_NOVEL',
+        'AUDIOBOOK_PIPELINE',
+      ] as Array<BackgroundTask['name']>
     ).includes(task.name);
   }
 

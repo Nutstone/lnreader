@@ -44,7 +44,12 @@ export function buildAnnotationPrompt(
   chapterId: number,
 ): LLMMessage {
   const characterList = glossary.characters
-    .map(c => `- ${c.name} (${c.gender}): ${c.description}`)
+    .map(c => {
+      const aliases = c.aliases.length
+        ? ` [aliases: ${c.aliases.join(', ')}]`
+        : '';
+      return `- ${c.name} (${c.gender})${aliases}: ${c.description}`;
+    })
     .join('\n');
 
   return {

@@ -48,6 +48,15 @@ export interface AudiobookConfig {
   novelId: string;
 }
 
+// ── Chapter Input ───────────────────────────────────────────────
+
+export interface ChapterInput {
+  /** Database chapter id — annotation cache files are keyed by this. */
+  id: number;
+  /** Plain chapter text (HTML already stripped). */
+  text: string;
+}
+
 // ── Character Glossary ──────────────────────────────────────────
 
 export interface Character {

@@ -2,21 +2,31 @@
  * Downloads and caches the Pocket TTS ONNX model and voice clips.
  *
  * Files are pulled from:
- *   - kyutai/pocket-tts (model weights, ONNX export)
+ *   - kyutai/pocket-tts-without-voice-cloning (ungated; the plain
+ *     kyutai/pocket-tts repo is gated and would 401 without a HF
+ *     token)
  *   - kyutai/tts-voices (voice clips / pre-encoded states)
  *   - any host the voice-zero clips reference via `clip.baseUrl`
  *
+ * ── KNOWN GAP (verified against Hugging Face, 2026-07) ──────────
+ * The ONNX filenames below do not exist upstream — kyutai ships
+ * only safetensors weights and a SentencePiece tokenizer.model.
+ * The project must produce and host its own export before
+ * `ensureModel`/`ensureTokenizer` can succeed. Voice clip paths in
+ * voiceBank.ts are also partly unverified — see that file.
+ *
  * Everything lands under the supplied cache dir (typically the OS
- * external cache, so storage pressure can reclaim it).
+ * external cache, so storage pressure can reclaim it). Downloads
+ * are atomic: fetched to a `.part` file and renamed on completion,
+ * so an interrupted transfer is never mistaken for a cached file.
  */
 
 import NativeFile from '@specs/NativeFile';
 import type { TTSPrecision, VoiceClip } from './types';
 
 const MODEL_REPO_BASE =
-  'https://huggingface.co/kyutai/pocket-tts/resolve/main';
-const VOICE_REPO_BASE =
-  'https://huggingface.co/kyutai/tts-voices/resolve/main';
+  'https://huggingface.co/kyutai/pocket-tts-without-voice-cloning/resolve/main';
+const VOICE_REPO_BASE = 'https://huggingface.co/kyutai/tts-voices/resolve/main';
 
 /**
  * Mapping from precision tier to the ONNX file name in the
@@ -79,7 +89,15 @@ export class ModelDownloader {
     if (!NativeFile.exists(parent)) {
       NativeFile.mkdir(parent);
     }
-    await NativeFile.downloadFile(url, localPath, 'GET', {});
+    // Download to a temp name and rename once complete, so a
+    // killed/interrupted download can't leave a truncated file that
+    // exists() would treat as a valid cache hit forever after.
+    const partPath = `${localPath}.part`;
+    if (NativeFile.exists(partPath)) {
+      NativeFile.unlink(partPath);
+    }
+    await NativeFile.downloadFile(url, partPath, 'GET', {});
+    NativeFile.moveFile(partPath, localPath);
     return localPath;
   }
 }

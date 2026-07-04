@@ -30,7 +30,10 @@ export const postProcess = (samples: Float32Array): Float32Array => {
 
 const trimSilence = (samples: Float32Array): Float32Array => {
   let start = 0;
-  while (start < samples.length && Math.abs(samples[start]) < SILENCE_THRESHOLD) {
+  while (
+    start < samples.length &&
+    Math.abs(samples[start]) < SILENCE_THRESHOLD
+  ) {
     start++;
   }
   let end = samples.length;

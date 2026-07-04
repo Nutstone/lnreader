@@ -31,7 +31,7 @@ import { getString } from '@strings/translations';
 import { MMKVStorage } from '@utils/mmkv/mmkv';
 import { parseChapterNumber } from '@utils/parseChapterNumber';
 import { showToast } from '@utils/showToast';
-import { NOVEL_STORAGE } from '@utils/Storages';
+import { AUDIOBOOK_STORAGE, NOVEL_STORAGE } from '@utils/Storages';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMMKVNumber, useMMKVObject } from 'react-native-mmkv';
@@ -686,6 +686,10 @@ export const deleteCachedNovels = async () => {
     const novelDir = NOVEL_STORAGE + '/' + novel.pluginId + '/' + novel.id;
     if (NativeFile.exists(novelDir)) {
       NativeFile.unlink(novelDir);
+    }
+    const audiobookDir = AUDIOBOOK_STORAGE + '/' + novel.id;
+    if (NativeFile.exists(audiobookDir)) {
+      NativeFile.unlink(audiobookDir);
     }
   }
   _deleteCachedNovels();

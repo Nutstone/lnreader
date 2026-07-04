@@ -17,6 +17,20 @@
  * the persisted voice map. Reordering or removing entries is a
  * breaking change for cached voice maps — bump
  * VOICE_BANK_SCHEMA_VERSION if you do that.
+ *
+ * ── KNOWN GAP (verified against upstream, 2026-07) ──────────────
+ * Only the voice-zero URLs below resolve. In kyutai/tts-voices the
+ * Expresso files are actually named like
+ * `expresso/ex01-ex02_default_001_channel1_168s.wav` (paired
+ * speakers, per-channel) and voice-donations files are anonymized
+ * hashes like `voice-donations/0a67.wav` — the friendly names below
+ * 404. More fundamentally these entries point at raw audio, but the
+ * ungated Pocket TTS release removes the voice-cloning encoder that
+ * would turn audio into speaker states; the real downloadable
+ * artifacts are precomputed embeddings (`embeddings_v3/<name>.
+ * safetensors` in the model repo, or the `.safetensors` companions
+ * next to each clip in kyutai/tts-voices). The catalog needs
+ * re-keying to those files once the model integration is real.
  */
 
 import type {
@@ -205,8 +219,7 @@ export const DONATION_VOICES: DonationVoice[] = [
 
 export const findEmotionalSpeaker = (
   id: string,
-): EmotionalSpeaker | undefined =>
-  EMOTIONAL_SPEAKERS.find(s => s.id === id);
+): EmotionalSpeaker | undefined => EMOTIONAL_SPEAKERS.find(s => s.id === id);
 
 export const findDonationVoice = (id: string): DonationVoice | undefined =>
   DONATION_VOICES.find(v => v.id === id);
@@ -226,5 +239,4 @@ export const donationsForGender = (
 };
 
 /** Total emotional speakers minus one (reserved for narrator). */
-export const MAX_MAIN_CHARACTER_EMOTIONAL_SLOTS =
-  EMOTIONAL_SPEAKERS.length - 1;
+export const MAX_MAIN_CHARACTER_EMOTIONAL_SLOTS = EMOTIONAL_SPEAKERS.length - 1;

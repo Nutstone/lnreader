@@ -68,8 +68,7 @@ export class AudiobookPlayer {
       tts: {
         precision: settings.ttsPrecision || 'q8',
         lookaheadSegments: settings.lookaheadSegments ?? 4,
-        mainCharacterEmotionalSlots:
-          settings.mainCharacterEmotionalSlots ?? 10,
+        mainCharacterEmotionalSlots: settings.mainCharacterEmotionalSlots ?? 10,
       },
       novelId,
     };
@@ -176,6 +175,12 @@ export class AudiobookPlayer {
       if (this.state === 'playing' || this.state === 'paused') {
         // Wait for the next segment to be buffered
         await this.waitForSegment();
+        if (this.getState() === 'idle') {
+          // stop() ran while we were waiting — it already reset
+          // state; firing onFinished here would falsely trigger
+          // finished-handling (e.g. auto page advance) after a stop.
+          return;
+        }
         if (index < this.segments.length) {
           return this.playSegment(index);
         }
@@ -196,9 +201,7 @@ export class AudiobookPlayer {
 
     // Handle pause before segment
     if (segment.pauseBeforeMs > 0) {
-      await new Promise(resolve =>
-        setTimeout(resolve, segment.pauseBeforeMs),
-      );
+      await new Promise(resolve => setTimeout(resolve, segment.pauseBeforeMs));
       if (this.state !== 'playing') {
         return;
       }

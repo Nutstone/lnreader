@@ -6,18 +6,21 @@
  *   speaker prompt → encoded speaker state (precomputed per voice)
  *   model.run({ text, speaker_state }) → audio samples (float32 @ 24kHz)
  *
- * Tensor I/O names below match the official `pocket-tts-onnx-export`.
- * If you ever swap to a different export, update the constants here.
- *
- * KNOWN GAP: `loadSpeakerState` reads voice files via
- * `NativeFile.readFile`, which decodes the bytes as UTF-8. Raw
- * binary files (multi-byte sequences) round-trip lossily — the
- * voice repo would need to ship its speaker states as base64 text
- * (or NativeFile would need a binary-read mode) before this works
- * end-to-end against a real ONNX export.
+ * ── KNOWN GAP (verified against Hugging Face, 2026-07) ──────────
+ * kyutai ships NO ONNX export of Pocket TTS. kyutai/pocket-tts and
+ * the ungated kyutai/pocket-tts-without-voice-cloning contain only
+ * safetensors weights (`tts_b6369a24.safetensors`), a SentencePiece
+ * `tokenizer.model` (not the tokenizer.json this adapter reads),
+ * and precomputed speaker embeddings under `embeddings_v3/` as
+ * safetensors. Until the project produces and hosts its own ONNX
+ * export (with the tensor I/O names below) plus a JSON tokenizer —
+ * or this adapter is rewritten around the real artifacts — this
+ * class cannot run against a downloadable model. The surrounding
+ * pipeline treats it as an injectable seam.
  */
 
 import { InferenceSession, Tensor } from 'onnxruntime-react-native';
+import { FileSystem } from 'react-native-file-access';
 import NativeFile from '@specs/NativeFile';
 
 const TEXT_INPUT_NAME = 'text_tokens';
@@ -48,19 +51,17 @@ export class PocketTTSAdapter {
   }
 
   /**
-   * Loads a precomputed speaker state from disk. Cached after the
-   * first call. See file-level note about the assumed format.
+   * Loads a precomputed speaker state (raw little-endian float32)
+   * from disk, reading the bytes losslessly via base64. Cached after
+   * the first call. See file-level note about the assumed format.
    */
   async loadSpeakerState(voiceClipPath: string): Promise<Float32Array> {
     const cached = this.speakerStateCache.get(voiceClipPath);
     if (cached) {
       return cached;
     }
-    const raw = NativeFile.readFile(voiceClipPath);
-    const bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) {
-      bytes[i] = raw.charCodeAt(i) & 0xff;
-    }
+    const base64 = await FileSystem.readFile(voiceClipPath, 'base64');
+    const bytes = base64ToBytes(base64);
     const floats = new Float32Array(
       bytes.buffer,
       bytes.byteOffset,
@@ -101,6 +102,41 @@ export class PocketTTSAdapter {
     };
   }
 }
+
+// ── Base64 ──────────────────────────────────────────────────────
+
+/* eslint-disable no-bitwise */
+const B64_LOOKUP = (() => {
+  const table = new Int8Array(128).fill(-1);
+  const abc =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  for (let i = 0; i < abc.length; i++) {
+    table[abc.charCodeAt(i)] = i;
+  }
+  return table;
+})();
+
+const base64ToBytes = (base64: string): Uint8Array => {
+  const clean = base64.replace(/[\r\n=]+/g, '');
+  const out = new Uint8Array(Math.floor((clean.length * 3) / 4));
+  let outIndex = 0;
+  let buffer = 0;
+  let bits = 0;
+  for (let i = 0; i < clean.length; i++) {
+    const value = B64_LOOKUP[clean.charCodeAt(i)];
+    if (value < 0) {
+      continue;
+    }
+    buffer = (buffer << 6) | value;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out[outIndex++] = (buffer >> bits) & 0xff;
+    }
+  }
+  return out.subarray(0, outIndex);
+};
+/* eslint-enable no-bitwise */
 
 // ── Tokenizer ───────────────────────────────────────────────────
 

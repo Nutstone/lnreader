@@ -3,15 +3,17 @@
  *
  * Pocket TTS is deterministic given the same (text, speaker clip),
  * so re-renders during seek / replay / chapter restart are pure
- * waste. The cache writes the rendered WAV (binary, decoded by
- * NativeFile's base64 encoding flag) once and the player reads it
- * back via `file://` URI — no read-decode-rewrite roundtrip.
+ * waste. The cache writes the rendered WAV once (binary, via
+ * react-native-file-access base64 encoding — NativeFile only does
+ * UTF-8 text) and the player reads it back via `file://` URI — no
+ * read-decode-rewrite roundtrip.
  *
  * Lives at `<dir>/<hash>.wav`. Eviction is manual (`clear()`); the
  * dir is expected to sit under the OS external cache so storage
  * pressure can also reclaim it.
  */
 
+import { FileSystem } from 'react-native-file-access';
 import NativeFile from '@specs/NativeFile';
 
 export class AudioCache {
@@ -37,9 +39,9 @@ export class AudioCache {
   }
 
   /** Decode the base64-encoded WAV and write it as binary on disk. */
-  set(key: string, base64Wav: string): void {
+  async set(key: string, base64Wav: string): Promise<void> {
     this.ensureDir();
-    NativeFile.writeFile(this.pathFor(key), base64Wav, 'base64');
+    await FileSystem.writeFile(this.pathFor(key), base64Wav, 'base64');
   }
 
   clear(): void {

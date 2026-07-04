@@ -1,7 +1,11 @@
 import { getPlugin } from '@plugins/pluginManager';
+import { getChapter } from '@database/queries/ChapterQueries';
 import { BackgroundTaskMetadata } from '@services/ServiceManager';
+import { NOVEL_STORAGE } from '@utils/Storages';
+import NativeFile from '@specs/NativeFile';
 import { AudiobookPipeline } from './pipeline';
-import { AudiobookConfig } from './types';
+import { AudiobookConfig, ChapterInput } from './types';
+import { htmlToText } from './htmlToText';
 import { getMMKVObject } from '@utils/mmkv/mmkv';
 import {
   AudiobookSettings,
@@ -51,21 +55,43 @@ export const processAudiobook = async (
       throw new Error(`Plugin not found: ${data.pluginId}`);
     }
 
-    // Fetch chapter texts
-    const chapterTexts: string[] = [];
+    // Gather chapter texts — from local storage when downloaded,
+    // else from the network via the source plugin.
+    const chapters: ChapterInput[] = [];
     for (let i = 0; i < data.chapterIds.length; i++) {
+      const chapterId = data.chapterIds[i];
       setMeta(meta => ({
         ...meta,
         progressText: `Fetching chapter ${i + 1}/${data.chapterIds.length}...`,
         progress: (i / data.chapterIds.length) * 0.1,
       }));
 
-      const chapterText = await plugin.parseChapter(data.chapterPaths[i]);
-      chapterTexts.push(chapterText || '');
+      try {
+        let html: string | undefined;
+        const chapter = await getChapter(chapterId);
+        if (chapter?.isDownloaded) {
+          const filePath = `${NOVEL_STORAGE}/${data.pluginId}/${data.novelId}/${chapterId}/index.html`;
+          if (NativeFile.exists(filePath)) {
+            html = NativeFile.readFile(filePath);
+          }
+        }
+        if (html === undefined) {
+          html = (await plugin.parseChapter(data.chapterPaths[i])) || '';
+        }
+        chapters.push({ id: chapterId, text: htmlToText(html) });
+      } catch (error) {
+        throw new Error(
+          `Failed to fetch chapter ${i + 1}/${
+            data.chapterIds.length
+          } (id ${chapterId}): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     // Run the pipeline
-    await pipeline.processNovel(chapterTexts, progress => {
+    await pipeline.processNovel(chapters, progress => {
       setMeta(meta => ({
         ...meta,
         progressText: progress.message,

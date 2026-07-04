@@ -4,6 +4,7 @@ export type { AudiobookState } from './AudiobookPlayer';
 export { LLMAnnotator } from './llmAnnotator';
 export { VoiceAssigner } from './voiceAssigner';
 export { TTSRenderer } from './ttsRenderer';
+export { htmlToText } from './htmlToText';
 export {
   EMOTIONAL_SPEAKERS,
   DONATION_VOICES,
@@ -13,6 +14,7 @@ export {
 } from './voiceBank';
 export type {
   AudiobookConfig,
+  ChapterInput,
   LLMConfig,
   TTSConfig,
   TTSPrecision,

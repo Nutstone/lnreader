@@ -2,6 +2,7 @@ import NativeFile from '@specs/NativeFile';
 import { AUDIOBOOK_CACHE_STORAGE, AUDIOBOOK_STORAGE } from '@utils/Storages';
 import {
   AudiobookConfig,
+  ChapterInput,
   CharacterGlossary,
   ChapterAnnotation,
   VoiceMap,
@@ -35,7 +36,7 @@ export class AudiobookPipeline {
   }
 
   async processNovel(
-    chapterTexts: string[],
+    chapters: ChapterInput[],
     onProgress?: (p: PipelineProgress) => void,
   ): Promise<void> {
     await this.ensureDir(this.novelDir);
@@ -51,7 +52,7 @@ export class AudiobookPipeline {
     let glossary = await this.getGlossary();
     if (!glossary) {
       // Use first 3 chapters (or all if fewer) for glossary
-      const sample = chapterTexts.slice(0, 3);
+      const sample = chapters.slice(0, 3).map(c => c.text);
       glossary = await this.annotator.buildGlossary(
         this.config.novelId,
         sample,
@@ -84,9 +85,12 @@ export class AudiobookPipeline {
       progress: 0.3,
     });
 
-    // Step 3: Annotate each chapter
-    for (let i = 0; i < chapterTexts.length; i++) {
-      const chapterId = i;
+    // Step 3: Annotate each chapter. The cache is keyed by database
+    // chapter id — the same key the playback path (annotateChapter)
+    // uses — so batch-produced annotations are reused by the player
+    // and never collide across different chapter selections.
+    for (let i = 0; i < chapters.length; i++) {
+      const { id: chapterId, text } = chapters[i];
       const cached = await this.getAnnotation(chapterId);
       if (cached) {
         continue;
@@ -94,13 +98,13 @@ export class AudiobookPipeline {
 
       onProgress?.({
         stage: 'annotation',
-        message: `Annotating chapter ${i + 1}/${chapterTexts.length}...`,
-        progress: 0.3 + (0.7 * i) / chapterTexts.length,
+        message: `Annotating chapter ${i + 1}/${chapters.length}...`,
+        progress: 0.3 + (0.7 * i) / chapters.length,
       });
 
       const annotation = await this.annotator.annotateChapter(
         chapterId,
-        chapterTexts[i],
+        text,
         glossary,
       );
       await this.writeJSON(
@@ -230,7 +234,9 @@ export class AudiobookPipeline {
       NativeFile.writeFile(path, JSON.stringify(data, null, 2));
     } catch (error) {
       throw new Error(
-        `Failed to write cache file ${path}: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to write cache file ${path}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       );
     }
   }
