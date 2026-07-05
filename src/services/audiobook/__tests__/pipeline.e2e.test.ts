@@ -535,6 +535,39 @@ describe('audiobook pipeline end-to-end', () => {
     expect(metaUpdates.some(t => t.includes('Finished processing'))).toBe(true);
   });
 
+  it('bootstraps glossary and voice map on first play (reader path)', async () => {
+    // No processNovel(): pressing play in the reader must work on a
+    // novel that was never batch-processed.
+    const pipeline = new AudiobookPipeline(CONFIG);
+    const statuses: string[] = [];
+
+    const annotation = await pipeline.annotateChapter(
+      7,
+      'The sun rose. "We march at dawn!" he cried.',
+      message => statuses.push(message),
+    );
+    expect(statuses).toEqual([
+      'Building character glossary…',
+      'Annotating chapter…',
+    ]);
+    expect(annotation.segments.length).toBeGreaterThan(0);
+    expect(await pipeline.getGlossary()).not.toBeNull();
+
+    const segments: AudioSegment[] = [];
+    for await (const segment of pipeline.streamChapterAudio(annotation)) {
+      segments.push(segment);
+    }
+    expect(segments).toHaveLength(annotation.segments.length);
+    expect(await pipeline.getVoiceMap()).not.toBeNull();
+
+    // Second chapter reuses the bootstrapped glossary — no rebuild.
+    const statuses2: string[] = [];
+    await pipeline.annotateChapter(8, 'A new day dawned.', message =>
+      statuses2.push(message),
+    );
+    expect(statuses2).toEqual(['Annotating chapter…']);
+  });
+
   it('streams playable WAV segments through the real engine and reuses the audio cache', async () => {
     const pipeline = new AudiobookPipeline(CONFIG);
     await pipeline.processNovel([

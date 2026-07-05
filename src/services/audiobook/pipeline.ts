@@ -121,9 +121,17 @@ export class AudiobookPipeline {
     });
   }
 
+  /**
+   * Annotates one chapter for playback. Self-bootstrapping: on a
+   * novel that was never batch-processed, the character glossary is
+   * built from this chapter alone — a three-chapter sample (see
+   * processNovel) reads the cast better, but pressing play must work
+   * without any prior setup step.
+   */
   async annotateChapter(
     chapterId: number,
     chapterText: string,
+    onStatus?: (message: string) => void,
   ): Promise<ChapterAnnotation> {
     // Check cache first
     const cached = await this.getAnnotation(chapterId);
@@ -131,14 +139,17 @@ export class AudiobookPipeline {
       return cached;
     }
 
-    // Need glossary for annotation
-    const glossary = await this.getGlossary();
+    let glossary = await this.getGlossary();
     if (!glossary) {
-      throw new Error(
-        'No glossary found. Run processNovel() first or provide chapter texts for glossary building.',
-      );
+      onStatus?.('Building character glossary…');
+      glossary = await this.annotator.buildGlossary(this.config.novelId, [
+        chapterText,
+      ]);
+      await this.ensureDir(this.novelDir);
+      await this.writeJSON(`${this.novelDir}/glossary.json`, glossary);
     }
 
+    onStatus?.('Annotating chapter…');
     await this.ensureDir(`${this.novelDir}/annotations`);
     const annotation = await this.annotator.annotateChapter(
       chapterId,
@@ -156,9 +167,17 @@ export class AudiobookPipeline {
     annotation: ChapterAnnotation,
     onSetupProgress?: (progress: TTSSetupProgress) => void,
   ): AsyncGenerator<AudioSegment> {
-    const voiceMap = await this.getVoiceMap();
+    let voiceMap = await this.getVoiceMap();
     if (!voiceMap) {
-      throw new Error('No voice map found. Run processNovel() first.');
+      // First playback for this novel (or the voice bank's schema
+      // changed): assign voices from the stored glossary.
+      const glossary = await this.getGlossary();
+      if (!glossary) {
+        throw new Error('No glossary found. Annotate a chapter first.');
+      }
+      voiceMap = this.assigner.buildVoiceMap(glossary);
+      await this.ensureDir(this.novelDir);
+      await this.writeJSON(`${this.novelDir}/voice-map.json`, voiceMap);
     }
 
     await this.renderer.initialize(onSetupProgress);

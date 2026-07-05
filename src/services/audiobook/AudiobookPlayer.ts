@@ -166,11 +166,11 @@ export class AudiobookPlayer {
     try {
       const pipeline = this.getPipeline(novelId);
 
-      // Annotate the chapter
-      emitStatus('Annotating chapter…');
+      // Annotate the chapter (builds the glossary on first play)
       const annotation: ChapterAnnotation = await pipeline.annotateChapter(
         chapterId,
         chapterText,
+        emitStatus,
       );
 
       if (this.state !== 'processing' || token !== this.setupToken) {
