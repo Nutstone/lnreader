@@ -206,6 +206,57 @@ export class AudiobookPipeline {
   }
 
   /**
+   * Narrator-only segments for keyless / LLM-failure playback. Pure
+   * text splitting — no LLM, no network. The result is deliberately
+   * NOT written to the annotation cache: a later run with a working
+   * key must still produce the real multi-voice annotation.
+   */
+  buildFallbackAnnotation(
+    chapterId: number,
+    chapterText: string,
+  ): ChapterAnnotation {
+    return {
+      chapterId,
+      segments: splitForNarration(chapterText).map((text, index) => ({
+        text,
+        speaker: 'narrator',
+        emotion: 'neutral' as const,
+        isDialogue: false,
+        pauseBefore: index === 0 ? ('short' as const) : ('medium' as const),
+      })),
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Streams audio for a fallback annotation. Reuses the persisted
+   * voice map when one exists (so the narrator sounds the same as in
+   * prepared chapters) but never creates one on disk.
+   */
+  async *streamFallbackAudio(
+    annotation: ChapterAnnotation,
+    onSetupProgress?: (progress: TTSSetupProgress) => void,
+  ): AsyncGenerator<AudioSegment> {
+    const voiceMap =
+      (await this.getVoiceMap()) ??
+      this.assigner.buildVoiceMap({
+        novelId: this.config.novelId,
+        characters: [],
+        narratorGender: 'male',
+        createdAt: new Date().toISOString(),
+      });
+
+    await this.renderer.initialize(onSetupProgress);
+    await this.renderer.prefetchForChapter(
+      annotation,
+      voiceMap,
+      onSetupProgress,
+    );
+    onSetupProgress?.({ stage: 'synthesis' });
+    yield* this.renderer.streamChapterAudio(annotation, voiceMap);
+  }
+
+  /**
    * Renders every segment of a prepared chapter into the audio cache
    * — the same cache live playback reads — so playback never waits on
    * the model. Reuses the streaming renderer by draining it. Returns
@@ -304,6 +355,8 @@ export class AudiobookPipeline {
     }
   }
 
+  static readonly FALLBACK_SEGMENT_CHARS = 240;
+
   private async readJSON<T>(path: string): Promise<T | null> {
     try {
       if (!NativeFile.exists(path)) {
@@ -324,3 +377,39 @@ export class AudiobookPipeline {
     }
   }
 }
+
+// ── Fallback narration splitting ────────────────────────────────
+
+/**
+ * Splits chapter text into narrator-sized segments (~240 chars) at
+ * sentence boundaries, paragraph-aware. No lookbehind — Hermes'
+ * regex support varies across RN versions.
+ */
+export const splitForNarration = (text: string): string[] => {
+  const segments: string[] = [];
+  for (const paragraph of text.split(/\n+/)) {
+    const trimmed = paragraph.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const sentences = trimmed.match(/[^.!?…]+[.!?…]+["”'’]?\s*|[^.!?…]+$/g) ?? [
+      trimmed,
+    ];
+    let current = '';
+    for (const sentence of sentences) {
+      if (
+        current &&
+        current.length + sentence.length >
+          AudiobookPipeline.FALLBACK_SEGMENT_CHARS
+      ) {
+        segments.push(current.trim());
+        current = '';
+      }
+      current += sentence;
+    }
+    if (current.trim()) {
+      segments.push(current.trim());
+    }
+  }
+  return segments;
+};

@@ -1,5 +1,5 @@
 import { Audio } from 'expo-av';
-import { getMMKVObject } from '@utils/mmkv/mmkv';
+import { getMMKVObject, setMMKVObject } from '@utils/mmkv/mmkv';
 import {
   AUDIOBOOK_SETTINGS,
   AudiobookSettings,
@@ -12,6 +12,22 @@ import { formatSetupProgress } from './setupProgress';
 import { AudioSegment, ChapterAnnotation, AudiobookConfig } from './types';
 
 export type AudiobookState = 'idle' | 'processing' | 'playing' | 'paused';
+
+/** Per-novel listening position, persisted for resume. */
+export interface AudiobookPosition {
+  chapterId: number;
+  segmentIndex: number;
+  updatedAt: string;
+}
+
+export const AUDIOBOOK_POSITIONS = 'AUDIOBOOK_POSITIONS';
+
+export const getAudiobookPosition = (
+  novelId: string,
+): AudiobookPosition | undefined =>
+  getMMKVObject<Record<string, AudiobookPosition>>(AUDIOBOOK_POSITIONS)?.[
+    novelId
+  ];
 
 /**
  * How long the TTS model stays loaded after playback goes idle.
@@ -32,6 +48,15 @@ export class AudiobookPlayer {
   private bufferingPromise: Promise<void> | null = null;
   private segmentResolvers: (() => void)[] = [];
   private idleUnloadTimer: ReturnType<typeof setTimeout> | null = null;
+  private currentChapterId = 0;
+  /** Segments skipped at the start when resuming mid-chapter. */
+  private indexOffset = 0;
+  /** Full segment count of the chapter (before resume slicing). */
+  private totalSegments = 0;
+  /** Whether the selected LLM provider is usable (set by getPipeline). */
+  private llmConfigured = false;
+  /** Serialized LLM config the current pipeline was built with. */
+  private pipelineLlmKey = '';
   /**
    * Identifies the current startChapter run. The multi-minute first
    * segment setup (download → load → prefetch → synthesis) cannot be
@@ -57,6 +82,11 @@ export class AudiobookPlayer {
    * once playback starts.
    */
   onStatus?: (message: string) => void;
+  /**
+   * Fired when playback degrades to narrator-only mode (no API key,
+   * or the LLM failed). Playback continues; surface as a toast.
+   */
+  onFallback?: (message: string) => void;
 
   private setState(newState: AudiobookState) {
     this.state = newState;
@@ -90,24 +120,58 @@ export class AudiobookPlayer {
     }
   }
 
+  // ── Resume position ─────────────────────────────────────────
+
+  private savePosition() {
+    if (!this.currentNovelId) {
+      return;
+    }
+    const store =
+      getMMKVObject<Record<string, AudiobookPosition>>(AUDIOBOOK_POSITIONS) ??
+      {};
+    store[this.currentNovelId] = {
+      chapterId: this.currentChapterId,
+      segmentIndex: this.currentIndex + this.indexOffset,
+      updatedAt: new Date().toISOString(),
+    };
+    setMMKVObject(AUDIOBOOK_POSITIONS, store);
+  }
+
+  private clearPosition() {
+    if (!this.currentNovelId) {
+      return;
+    }
+    const store =
+      getMMKVObject<Record<string, AudiobookPosition>>(AUDIOBOOK_POSITIONS) ??
+      {};
+    if (store[this.currentNovelId]) {
+      delete store[this.currentNovelId];
+      setMMKVObject(AUDIOBOOK_POSITIONS, store);
+    }
+  }
+
   getState(): AudiobookState {
     return this.state;
   }
 
   private getPipeline(novelId: string): AudiobookPipeline {
-    if (this.pipeline && this.currentNovelId === novelId) {
-      return this.pipeline;
-    }
-
     const settings = getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS);
     const llm = resolveLLMConfig(settings);
-    if (!isLLMConfigured(llm)) {
-      throw new Error(
-        llm.provider === 'ollama'
-          ? 'Audiobook not configured. Set the Ollama base URL in Settings.'
-          : `Audiobook not configured. Set your ${llm.provider} API key in Settings.`,
-      );
+    // No key is no longer fatal — playback degrades to narrator-only
+    // mode (synthesis is fully offline).
+    this.llmConfigured = isLLMConfigured(llm);
+
+    // Reuse the pipeline only while novel AND LLM config are
+    // unchanged — a key added mid-session must reach the annotator.
+    const llmKey = JSON.stringify(llm);
+    if (
+      this.pipeline &&
+      this.currentNovelId === novelId &&
+      this.pipelineLlmKey === llmKey
+    ) {
+      return this.pipeline;
     }
+    this.pipelineLlmKey = llmKey;
 
     // Switching novels — release the previous model session before
     // allocating a fresh pipeline. Keeps onnx memory bounded.
@@ -149,6 +213,7 @@ export class AudiobookPlayer {
     chapterText: string,
     chapterId: number,
     novelId: string,
+    resumeIndex: number = 0,
   ): Promise<void> {
     await this.stop();
     const token = ++this.setupToken;
@@ -161,25 +226,74 @@ export class AudiobookPlayer {
 
     try {
       const pipeline = this.getPipeline(novelId);
+      this.currentNovelId = novelId;
+      this.currentChapterId = chapterId;
 
-      // Annotate the chapter (builds the glossary on first play)
-      const annotation: ChapterAnnotation = await pipeline.annotateChapter(
-        chapterId,
-        chapterText,
-        emitStatus,
-      );
+      // Annotate the chapter (builds the glossary on first play).
+      // Without a usable LLM, prepared chapters still play with the
+      // full cast from their cached annotation; unprepared ones
+      // degrade to narrator-only. LLM failures degrade the same way
+      // instead of blocking playback.
+      let annotation: ChapterAnnotation | null = null;
+      let fallbackReason: string | null = null;
+      if (!this.llmConfigured) {
+        annotation = await pipeline.getAnnotation(chapterId);
+        if (!annotation) {
+          fallbackReason = 'No LLM API key set — narrator voice only.';
+        }
+      } else {
+        try {
+          annotation = await pipeline.annotateChapter(
+            chapterId,
+            chapterText,
+            emitStatus,
+          );
+        } catch (error) {
+          if (token !== this.setupToken) {
+            return;
+          }
+          fallbackReason = `Chapter analysis failed — narrator voice only. (${
+            error instanceof Error ? error.message : String(error)
+          })`;
+        }
+      }
+      const isFallback = annotation === null;
+      if (!annotation) {
+        annotation = pipeline.buildFallbackAnnotation(chapterId, chapterText);
+      }
+      if (fallbackReason && token === this.setupToken) {
+        this.onFallback?.(fallbackReason);
+      }
 
       if (this.state !== 'processing' || token !== this.setupToken) {
         return; // stopped while processing
+      }
+
+      // Resume mid-chapter by slicing off already-heard segments —
+      // segments are independent, so skipped ones are never rendered.
+      this.totalSegments = annotation.segments.length;
+      this.indexOffset =
+        resumeIndex > 0 && resumeIndex < annotation.segments.length - 1
+          ? resumeIndex
+          : 0;
+      if (this.indexOffset > 0) {
+        annotation = {
+          ...annotation,
+          segments: annotation.segments.slice(this.indexOffset),
+        };
       }
 
       // Collect segments from the async generator
       this.segments = [];
       this.currentIndex = 0;
 
-      const generator = pipeline.streamChapterAudio(annotation, progress =>
-        emitStatus(formatSetupProgress(progress)),
-      );
+      const generator = isFallback
+        ? pipeline.streamFallbackAudio(annotation, progress =>
+            emitStatus(formatSetupProgress(progress)),
+          )
+        : pipeline.streamChapterAudio(annotation, progress =>
+            emitStatus(formatSetupProgress(progress)),
+          );
       // Buffer first segment before starting playback
       const first = await generator.next();
       if (
@@ -259,6 +373,7 @@ export class AudiobookPlayer {
         if (index < this.segments.length) {
           return this.playSegment(index);
         }
+        this.clearPosition();
         this.setState('idle');
         this.onFinished?.();
       }
@@ -267,9 +382,10 @@ export class AudiobookPlayer {
 
     this.currentIndex = index;
     const segment = this.segments[index];
+    this.savePosition();
     this.onSegmentChange?.(
-      index,
-      this.segments.length,
+      index + this.indexOffset,
+      this.totalSegments,
       segment.speaker,
       segment.text || '',
     );
@@ -376,8 +492,11 @@ export class AudiobookPlayer {
     this.currentIndex = 0;
   }
 
+  /** `index` is chapter-global; resumed sessions can't seek before
+   * their resume point (those segments were never rendered). */
   async seekTo(index: number): Promise<void> {
-    if (this.state === 'idle' || index < 0 || index >= this.segments.length) {
+    const internal = Math.max(0, index - this.indexOffset);
+    if (this.state === 'idle' || internal >= this.segments.length) {
       return;
     }
     if (this.sound) {
@@ -387,14 +506,14 @@ export class AudiobookPlayer {
     }
     const wasPlaying = this.state === 'playing';
     if (wasPlaying) {
-      await this.playSegment(index);
+      await this.playSegment(internal);
     } else {
-      this.currentIndex = index;
+      this.currentIndex = internal;
       this.onSegmentChange?.(
-        index,
-        this.segments.length,
-        this.segments[index].speaker,
-        this.segments[index].text || '',
+        internal + this.indexOffset,
+        this.totalSegments,
+        this.segments[internal].speaker,
+        this.segments[internal].text || '',
       );
     }
   }

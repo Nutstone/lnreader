@@ -632,6 +632,37 @@ describe('audiobook pipeline end-to-end', () => {
     expect(statuses2).toEqual(['Annotating chapter…']);
   });
 
+  it('plays narrator-only fallback without any LLM call or cache writes', async () => {
+    const pipeline = new AudiobookPipeline(CONFIG);
+    const text =
+      'The rain fell hard. "Run!" she cried. He ran.\n\n' +
+      'A second paragraph follows with more words to narrate aloud. ' +
+      'It keeps going until it comfortably exceeds the segment size ' +
+      'limit so the splitter has to cut it into more than one piece. ' +
+      'Sentences continue to arrive, one after another, relentlessly.';
+
+    const annotation = pipeline.buildFallbackAnnotation(9, text);
+    expect(annotation.segments.length).toBeGreaterThan(1);
+    for (const segment of annotation.segments) {
+      expect(segment.speaker).toBe('narrator');
+      expect(segment.emotion).toBe('neutral');
+      expect(segment.text.length).toBeLessThanOrEqual(400);
+    }
+
+    const before = mockLlmRequests.length;
+    const segments: AudioSegment[] = [];
+    for await (const segment of pipeline.streamFallbackAudio(annotation)) {
+      segments.push(segment);
+    }
+    expect(segments).toHaveLength(annotation.segments.length);
+    // No LLM calls, and no glossary/annotation caches were created —
+    // a later run with a key must still do the real analysis.
+    expect(mockLlmRequests.length).toBe(before);
+    expect(mockFs.has('/data/Audiobook/42/glossary.json')).toBe(false);
+    expect(mockFs.has('/data/Audiobook/42/annotations/9.json')).toBe(false);
+    expect(mockFs.has('/data/Audiobook/42/voice-map.json')).toBe(false);
+  });
+
   it('streams playable WAV segments through the real engine and reuses the audio cache', async () => {
     const pipeline = new AudiobookPipeline(CONFIG);
     await pipeline.processNovel([

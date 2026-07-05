@@ -24,7 +24,11 @@ import {
 import { getBatteryLevelSync } from 'react-native-device-info';
 import * as Speech from 'expo-speech';
 import { PLUGIN_STORAGE } from '@utils/Storages';
-import { AudiobookPlayer } from '@services/audiobook/AudiobookPlayer';
+import {
+  AudiobookPlayer,
+  getAudiobookPosition,
+} from '@services/audiobook/AudiobookPlayer';
+import { showToast } from '@utils/showToast';
 import { useChapterContext } from '../ChapterContext';
 import {
   showTTSNotification,
@@ -143,8 +147,14 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
       }
     };
 
+    player.onFallback = message => {
+      showToast(message);
+    };
+
     player.onFinished = () => {
       isAudiobookActiveRef.current = false;
+      // Listening through a chapter counts as reading it.
+      saveProgress(100);
       const autoAdvance =
         readerSettingsRef.current.audiobook?.autoPageAdvance === true;
       if (autoAdvance && nextChapter) {
@@ -205,6 +215,7 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
       player.onError = undefined;
       player.onStateChange = undefined;
       player.onStatus = undefined;
+      player.onFallback = undefined;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapter.id, novel?.name, novel?.cover, chapter.name, nextChapter]);
@@ -625,10 +636,14 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
                 coverUri: novel?.cover || '',
                 isPlaying: true,
               });
+              // Resume mid-chapter when this is the chapter we last
+              // listened to.
+              const stored = getAudiobookPosition(String(novel?.id || ''));
               audiobookPlayerRef.current.startChapter(
                 event.data,
                 chapter.id,
                 String(novel?.id || ''),
+                stored?.chapterId === chapter.id ? stored.segmentIndex : 0,
               );
             }
             break;

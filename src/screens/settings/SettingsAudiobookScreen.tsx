@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Switch, Text, TextInput } from 'react-native-paper';
+import { FileSystem } from 'react-native-file-access';
 
 import { Appbar, List, SafeAreaView } from '@components';
 import { useTheme, useAudiobookSettings } from '@hooks/persisted';
@@ -8,6 +9,40 @@ import { providerSettingsFor } from '@hooks/persisted/useAudiobookSettings';
 import { DEFAULT_MODELS } from '@services/audiobook/llmAnnotator';
 import { getString } from '@strings/translations';
 import { AudiobookSettingsScreenProps } from '@navigators/types';
+import NativeFile from '@specs/NativeFile';
+import { AUDIOBOOK_CACHE_STORAGE } from '@utils/Storages';
+import { showToast } from '@utils/showToast';
+
+/** Model + voice-file directories (re-downloadable). */
+const MODEL_DIRS = ['bundles', 'embeddings', 'voices'];
+/** Rendered chapter audio (re-synthesizable). */
+const AUDIO_DIR = 'audio';
+
+const dirSize = async (path: string): Promise<number> => {
+  if (!NativeFile.exists(path)) {
+    return 0;
+  }
+  let total = 0;
+  const stack = [path];
+  while (stack.length) {
+    const dir = stack.pop()!;
+    for (const entry of NativeFile.readDir(dir)) {
+      if (entry.isDirectory) {
+        stack.push(entry.path);
+      } else {
+        try {
+          total += (await FileSystem.stat(entry.path)).size ?? 0;
+        } catch {
+          // Files may vanish while we walk (cache eviction) — skip.
+        }
+      }
+    }
+  }
+  return total;
+};
+
+const formatMB = (bytes: number | null): string =>
+  bytes === null ? '…' : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 const providers = [
   { key: 'anthropic' as const, label: 'audiobookSettings.providerAnthropic' },
@@ -55,6 +90,40 @@ const AudiobookSettingsScreen = ({
     setModelInput(stored.model);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [llmProvider]);
+
+  const [modelBytes, setModelBytes] = useState<number | null>(null);
+  const [audioBytes, setAudioBytes] = useState<number | null>(null);
+
+  const refreshStorage = useCallback(async () => {
+    setModelBytes(null);
+    setAudioBytes(null);
+    let model = 0;
+    for (const dir of MODEL_DIRS) {
+      model += await dirSize(`${AUDIOBOOK_CACHE_STORAGE}/${dir}`);
+    }
+    setModelBytes(model);
+    setAudioBytes(await dirSize(`${AUDIOBOOK_CACHE_STORAGE}/${AUDIO_DIR}`));
+  }, []);
+
+  useEffect(() => {
+    refreshStorage();
+  }, [refreshStorage]);
+
+  const clearDirs = useCallback(
+    (dirs: string[], what: string) => {
+      for (const dir of dirs) {
+        const path = `${AUDIOBOOK_CACHE_STORAGE}/${dir}`;
+        if (NativeFile.exists(path)) {
+          try {
+            NativeFile.unlink(path);
+          } catch {}
+        }
+      }
+      showToast(`${what} deleted`);
+      refreshStorage();
+    },
+    [refreshStorage],
+  );
 
   return (
     <SafeAreaView excludeTop>
@@ -265,6 +334,42 @@ const AudiobookSettingsScreen = ({
         </List.Section>
 
         <List.Section>
+          <List.SubHeader theme={theme}>Storage</List.SubHeader>
+          <View style={styles.storageRow}>
+            <View style={styles.switchLabel}>
+              <Text style={{ color: theme.onSurface }}>
+                TTS model & voice files
+              </Text>
+              <Text
+                variant="bodySmall"
+                style={{ color: theme.onSurfaceVariant }}
+              >
+                {formatMB(modelBytes)} — re-downloaded when needed
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => clearDirs(MODEL_DIRS, 'Model & voice files')}
+            >
+              <Text style={{ color: theme.primary }}>Delete</Text>
+            </Pressable>
+          </View>
+          <View style={styles.storageRow}>
+            <View style={styles.switchLabel}>
+              <Text style={{ color: theme.onSurface }}>Rendered audio</Text>
+              <Text
+                variant="bodySmall"
+                style={{ color: theme.onSurfaceVariant }}
+              >
+                {formatMB(audioBytes)} — re-synthesized when needed
+              </Text>
+            </View>
+            <Pressable onPress={() => clearDirs([AUDIO_DIR], 'Rendered audio')}>
+              <Text style={{ color: theme.primary }}>Delete</Text>
+            </Pressable>
+          </View>
+        </List.Section>
+
+        <List.Section>
           <List.SubHeader theme={theme}>
             Main-character emotional voice slots
           </List.SubHeader>
@@ -315,6 +420,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   paddingBottom: { paddingBottom: 40 },
+  storageRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
   switchLabel: {
     flex: 1,
     paddingRight: 16,
