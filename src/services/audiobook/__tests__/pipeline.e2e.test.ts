@@ -461,6 +461,9 @@ jest.mock('@utils/mmkv/mmkv', () => ({
     lookaheadSegments: 2,
     mainCharacterEmotionalSlots: 0,
   })),
+  setMMKVObject: jest.fn(),
+  // Used by the shared downloadFile helper's User-Agent lookup.
+  MMKVStorage: { getString: jest.fn(() => undefined) },
 }));
 
 jest.mock('@plugins/pluginManager', () => ({
