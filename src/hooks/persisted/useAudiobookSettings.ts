@@ -25,6 +25,8 @@ export interface AudiobookSettings {
   ttsPrecision: TTSPrecision;
   lookaheadSegments: number;
   mainCharacterEmotionalSlots: number;
+  /** 'Prepare audiobook' also synthesizes the batch's audio. */
+  renderDuringPrepare?: boolean;
 }
 
 const initialAudiobookSettings: AudiobookSettings = {
@@ -33,6 +35,7 @@ const initialAudiobookSettings: AudiobookSettings = {
   ttsPrecision: 'int8',
   lookaheadSegments: 4,
   mainCharacterEmotionalSlots: 10,
+  renderDuringPrepare: false,
 };
 
 const EMPTY_PROVIDER: ProviderSettings = { apiKey: '', model: '', baseUrl: '' };

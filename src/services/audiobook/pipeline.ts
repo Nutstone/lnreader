@@ -43,7 +43,10 @@ export class AudiobookPipeline {
     await this.ensureDir(this.novelDir);
     await this.ensureDir(`${this.novelDir}/annotations`);
 
-    // Step 1: Build glossary (if not cached)
+    // Step 1: Build or evolve the glossary. Each prepared batch
+    // merges its chapters into the cast — characters introduced late
+    // in a novel get voices too. Skipped when every chapter in the
+    // batch is already annotated (nothing new to learn).
     onProgress?.({
       stage: 'glossary',
       message: 'Building character glossary...',
@@ -51,12 +54,17 @@ export class AudiobookPipeline {
     });
 
     let glossary = await this.getGlossary();
-    if (!glossary) {
-      // Use first 3 chapters (or all if fewer) for glossary
-      const sample = chapters.slice(0, 3).map(c => c.text);
+    const unannotated: ChapterInput[] = [];
+    for (const chapter of chapters) {
+      if (!(await this.getAnnotation(chapter.id))) {
+        unannotated.push(chapter);
+      }
+    }
+    if (!glossary || unannotated.length > 0) {
       glossary = await this.annotator.buildGlossary(
         this.config.novelId,
-        sample,
+        (unannotated.length ? unannotated : chapters).map(c => c.text),
+        glossary ?? undefined,
       );
       await this.writeJSON(`${this.novelDir}/glossary.json`, glossary);
     }
@@ -67,7 +75,8 @@ export class AudiobookPipeline {
       progress: 0.2,
     });
 
-    // Step 2: Build voice map (if not cached)
+    // Step 2: Build the voice map, or extend it with newcomers —
+    // existing assignments never change (voice stability).
     onProgress?.({
       stage: 'voice-mapping',
       message: 'Assigning character voices...',
@@ -75,10 +84,10 @@ export class AudiobookPipeline {
     });
 
     let voiceMap = await this.getVoiceMap();
-    if (!voiceMap) {
-      voiceMap = this.assigner.buildVoiceMap(glossary);
-      await this.writeJSON(`${this.novelDir}/voice-map.json`, voiceMap);
-    }
+    voiceMap = voiceMap
+      ? this.assigner.extendVoiceMap(voiceMap, glossary)
+      : this.assigner.buildVoiceMap(glossary);
+    await this.writeJSON(`${this.novelDir}/voice-map.json`, voiceMap);
 
     onProgress?.({
       stage: 'voice-mapping',
@@ -194,6 +203,34 @@ export class AudiobookPipeline {
     // is expensive and mid-novel pause/resume should keep it warm.
     // Call `disposeRenderer()` when switching novels or tearing down.
     yield* this.renderer.streamChapterAudio(annotation, voiceMap);
+  }
+
+  /**
+   * Renders every segment of a prepared chapter into the audio cache
+   * — the same cache live playback reads — so playback never waits on
+   * the model. Reuses the streaming renderer by draining it. Returns
+   * false when the chapter has no annotation yet.
+   */
+  async renderChapterAudio(
+    chapterId: number,
+    onProgress?: (done: number, total: number) => void,
+    onSetupProgress?: (progress: TTSSetupProgress) => void,
+  ): Promise<boolean> {
+    const annotation = await this.getAnnotation(chapterId);
+    if (!annotation) {
+      return false;
+    }
+    const total = annotation.segments.length;
+    let done = 0;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _segment of this.streamChapterAudio(
+      annotation,
+      onSetupProgress,
+    )) {
+      done++;
+      onProgress?.(done, total);
+    }
+    return true;
   }
 
   /** Release the on-device TTS model. Call when switching novels. */

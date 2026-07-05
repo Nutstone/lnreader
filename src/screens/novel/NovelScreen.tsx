@@ -32,6 +32,10 @@ import { ThemeColors } from '@theme/types';
 import { SafeAreaView } from '@components';
 import { useNovelContext } from './NovelContext';
 import { LegendListRef } from '@legendapp/list';
+import ServiceManager from '@services/ServiceManager';
+import { AUDIOBOOK_STORAGE } from '@utils/Storages';
+import NativeFile from '@specs/NativeFile';
+import { showToast } from '@utils/showToast';
 
 const Novel = ({ route, navigation }: NovelScreenProps) => {
   const {
@@ -101,6 +105,46 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
   const deleteChs = useCallback(() => {
     deleteChapters(chapters.filter(c => c.isDownloaded));
   }, [chapters, deleteChapters]);
+
+  // Queue the next N unread chapters that aren't annotated yet for
+  // audiobook preparation (mirrors the download-next-N semantics).
+  const prepareAudiobook = useCallback(
+    (amount: number) => {
+      if (!novel) {
+        return;
+      }
+      const unread = chapters.filter(c => c.unread);
+      const pool = unread.length > 0 ? unread : chapters;
+      const pending = pool
+        .filter(
+          c =>
+            !NativeFile.exists(
+              `${AUDIOBOOK_STORAGE}/${novel.id}/annotations/${c.id}.json`,
+            ),
+        )
+        .slice(0, amount);
+      if (pending.length === 0) {
+        showToast('Next chapters are already prepared');
+        return;
+      }
+      ServiceManager.manager.addTask({
+        name: 'AUDIOBOOK_PIPELINE',
+        data: {
+          novelId: novel.id,
+          novelName: novel.name,
+          pluginId: novel.pluginId,
+          chapterIds: pending.map(c => c.id),
+          chapterPaths: pending.map(c => c.path),
+        },
+      });
+      showToast(
+        `Preparing ${pending.length} chapter${
+          pending.length === 1 ? '' : 's'
+        } for audiobook`,
+      );
+    },
+    [chapters, novel],
+  );
 
   const shareNovel = useCallback(() => {
     if (!novel) {
@@ -229,17 +273,19 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
       batchInformation.batch < batchInformation.total && !fetching
         ? getNextChapterBatch
         : noop,
-    [batchInformation.batch, batchInformation.total, fetching, getNextChapterBatch],
+    [
+      batchInformation.batch,
+      batchInformation.total,
+      fetching,
+      getNextChapterBatch,
+    ],
   );
 
   const hideJumpToChapterModal = useCallback(
     () => showJumpToChapterModal(false),
     [],
   );
-  const hideEditInfoModal = useCallback(
-    () => showEditInfoModal(false),
-    [],
-  );
+  const hideEditInfoModal = useCallback(() => showEditInfoModal(false), []);
   const clearSelection = useCallback(() => setSelected([]), []);
   const selectAll = useCallback(() => setSelected(chapters), [chapters]);
 
@@ -280,6 +326,7 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
               novel={novel}
               deleteChapters={deleteChs}
               downloadChapters={downloadChs}
+              prepareAudiobook={prepareAudiobook}
               showEditInfoModal={showEditInfoModal}
               setCustomNovelCover={setCustomNovelCover}
               downloadCustomChapterModal={openDlChapterModal}

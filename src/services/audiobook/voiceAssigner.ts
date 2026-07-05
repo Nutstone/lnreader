@@ -125,6 +125,87 @@ export class VoiceAssigner {
     };
   }
 
+  /**
+   * Extends an existing voice map with characters the evolving
+   * glossary discovered since the map was built. Stability rule: a
+   * character's voice NEVER changes once assigned — existing entries
+   * (including user-pinned ones) are untouched; only unmapped
+   * characters and aliases receive voices.
+   */
+  extendVoiceMap(voiceMap: VoiceMap, glossary: CharacterGlossary): VoiceMap {
+    const mappings: Record<string, VoiceAssignment> = {
+      ...voiceMap.mappings,
+    };
+
+    const narratorSpeakerId =
+      mappings.narrator?.kind === 'emotional'
+        ? mappings.narrator.speakerId
+        : this.options.narratorSpeakerId ?? DEFAULT_NARRATOR_SPEAKER_ID;
+
+    // Emotional speakers already in use stay off-limits so two main
+    // characters never share a voice.
+    const taken = new Set<string>();
+    for (const [name, assignment] of Object.entries(mappings)) {
+      if (name !== 'narrator' && assignment.kind === 'emotional') {
+        taken.add(assignment.speakerId);
+      }
+    }
+
+    const slots = Math.min(
+      this.options.mainCharacterEmotionalSlots,
+      MAX_MAIN_CHARACTER_EMOTIONAL_SLOTS,
+    );
+    const remainingEmotional = EMOTIONAL_SPEAKERS.filter(
+      s => s.id !== narratorSpeakerId,
+    );
+
+    const newcomers = this.rankByImportance(glossary.characters).filter(
+      character => !mappings[character.name],
+    );
+    let usedSlots = taken.size;
+    for (const character of newcomers) {
+      if (usedSlots >= slots) {
+        break;
+      }
+      const speaker = pickEmotionalForGender(
+        remainingEmotional,
+        character.gender,
+        taken,
+      );
+      if (!speaker) {
+        break;
+      }
+      mappings[character.name] = {
+        kind: 'emotional',
+        speakerId: speaker.id,
+        label: `${character.name} (${speaker.label})`,
+      };
+      taken.add(speaker.id);
+      usedSlots++;
+    }
+
+    for (const character of glossary.characters) {
+      if (!mappings[character.name]) {
+        mappings[character.name] = this.assignDonationVoice(character);
+      }
+    }
+
+    for (const character of glossary.characters) {
+      const assignment = mappings[character.name];
+      for (const alias of character.aliases ?? []) {
+        if (!mappings[alias]) {
+          mappings[alias] = assignment;
+        }
+      }
+    }
+
+    return {
+      ...voiceMap,
+      mappings,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   overrideVoice(
     voiceMap: VoiceMap,
     characterName: string,
@@ -134,10 +215,24 @@ export class VoiceAssigner {
       ...voiceMap,
       mappings: {
         ...voiceMap.mappings,
-        [characterName]: assignment,
+        [characterName]: { ...assignment, pinned: true },
       },
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Clears a manual pick and reassigns the character as if it were a
+   * newcomer (stability for everyone else is preserved).
+   */
+  resetVoice(
+    voiceMap: VoiceMap,
+    characterName: string,
+    glossary: CharacterGlossary,
+  ): VoiceMap {
+    const mappings = { ...voiceMap.mappings };
+    delete mappings[characterName];
+    return this.extendVoiceMap({ ...voiceMap, mappings }, glossary);
   }
 
   private rankByImportance(characters: Character[]): Character[] {

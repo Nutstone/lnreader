@@ -17,8 +17,7 @@ import { NovelInfo } from '@database/types';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { MaterialDesignIconName } from '@type/icon';
 
-const AnimatedAppbarAction =
-  Animated.createAnimatedComponent(Appbar.Action);
+const AnimatedAppbarAction = Animated.createAnimatedComponent(Appbar.Action);
 
 const Menu = React.memo(
   ({
@@ -76,6 +75,7 @@ const NovelAppbar = ({
   theme,
   isLocal,
   downloadChapters,
+  prepareAudiobook,
   deleteChapters,
   showEditInfoModal,
   downloadCustomChapterModal,
@@ -89,6 +89,7 @@ const NovelAppbar = ({
   theme: ThemeColors;
   isLocal: boolean | undefined;
   downloadChapters: (amount: number | 'all' | 'unread') => void;
+  prepareAudiobook: (amount: number) => void;
   deleteChapters: () => void;
   showEditInfoModal: React.Dispatch<React.SetStateAction<boolean>>;
   downloadCustomChapterModal: () => void;
@@ -112,10 +113,7 @@ const NovelAppbar = ({
   const [downloadMenu, showDownloadMenu] = useState(false);
   const [extraMenu, showExtraMenu] = useState(false);
 
-  const appbarTheme = useMemo(
-    () => ({ colors: theme }),
-    [theme],
-  );
+  const appbarTheme = useMemo(() => ({ colors: theme }), [theme]);
 
   const AppbarAction = useCallback(
     (props: {
@@ -167,8 +165,21 @@ const NovelAppbar = ({
         label: getString('novelScreen.download.delete'),
         onPress: () => deleteChapters(),
       },
+      {
+        label: 'Audiobook: prepare next 5',
+        onPress: () => prepareAudiobook(5),
+      },
+      {
+        label: 'Audiobook: prepare next 10',
+        onPress: () => prepareAudiobook(10),
+      },
     ];
-  }, [deleteChapters, downloadChapters, downloadCustomChapterModal]);
+  }, [
+    deleteChapters,
+    downloadChapters,
+    downloadCustomChapterModal,
+    prepareAudiobook,
+  ]);
 
   const extraMenuItems = useMemo(
     () => [

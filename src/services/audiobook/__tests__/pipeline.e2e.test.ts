@@ -370,18 +370,36 @@ jest.mock('onnxruntime-react-native', () => {
 
 // ── LLM fixtures ────────────────────────────────────────────────
 
+const MOCK_HERO = {
+  name: 'Hero',
+  aliases: ['The Chosen One'],
+  gender: 'male',
+  personality: ['brave'],
+  description: 'The protagonist',
+  importance: 10,
+};
+
 const MOCK_GLOSSARY_RESPONSE = JSON.stringify({
+  characters: [MOCK_HERO],
+  narratorGender: 'male',
+});
+
+// Returned for merge requests (they carry the existing glossary):
+// Hero enriched, a newcomer appended, and narratorGender flipped to
+// female on purpose — the merge must keep the original gender.
+const MOCK_MERGED_GLOSSARY_RESPONSE = JSON.stringify({
   characters: [
+    { ...MOCK_HERO, importance: 95 },
     {
-      name: 'Hero',
-      aliases: ['The Chosen One'],
-      gender: 'male',
-      personality: ['brave'],
-      description: 'The protagonist',
-      importance: 10,
+      name: 'Sorceress',
+      aliases: [],
+      gender: 'female',
+      personality: ['mysterious'],
+      description: 'Appears in later chapters',
+      importance: 80,
     },
   ],
-  narratorGender: 'male',
+  narratorGender: 'female',
 });
 
 const mockAnnotationResponse = () =>
@@ -412,7 +430,12 @@ jest.mock('@utils/fetch/fetch', () => ({
   fetchTimeout: jest.fn(async (_url: string, init: { body: string }) => {
     mockLlmRequests.push(init.body);
     const isGlossary = init.body.includes('character glossary');
-    const text = isGlossary ? MOCK_GLOSSARY_RESPONSE : mockAnnotationResponse();
+    const isMerge = init.body.includes('Existing glossary:');
+    const text = isMerge
+      ? MOCK_MERGED_GLOSSARY_RESPONSE
+      : isGlossary
+      ? MOCK_GLOSSARY_RESPONSE
+      : mockAnnotationResponse();
     return {
       ok: true,
       status: 200,
@@ -533,6 +556,47 @@ describe('audiobook pipeline end-to-end', () => {
     expect(annotation.segments[1].pauseBefore).toBe('medium');
 
     expect(metaUpdates.some(t => t.includes('Finished processing'))).toBe(true);
+  });
+
+  it('evolves the glossary across batches without reshuffling voices', async () => {
+    const pipeline = new AudiobookPipeline(CONFIG);
+    await pipeline.processNovel([{ id: 1, text: 'Hero swings his sword.' }]);
+
+    const firstMap = (await pipeline.getVoiceMap())!;
+    const heroVoice = firstMap.mappings.Hero;
+    expect(heroVoice).toBeDefined();
+    expect(firstMap.mappings.Sorceress).toBeUndefined();
+
+    // Second batch: the mock returns a merged glossary with a new
+    // character and a flipped narrator gender (which must be kept
+    // stable by the merge logic).
+    await pipeline.processNovel([
+      { id: 2, text: 'A sorceress appears in the doorway.' },
+    ]);
+
+    const glossary = (await pipeline.getGlossary())!;
+    expect(glossary.characters.map(c => c.name)).toEqual(
+      expect.arrayContaining(['Hero', 'Sorceress']),
+    );
+    expect(glossary.narratorGender).toBe('male');
+
+    const secondMap = (await pipeline.getVoiceMap())!;
+    // Stability: Hero and the narrator keep their exact assignments.
+    expect(secondMap.mappings.Hero).toEqual(heroVoice);
+    expect(secondMap.mappings.narrator).toEqual(firstMap.mappings.narrator);
+    // The newcomer got a voice.
+    expect(secondMap.mappings.Sorceress).toBeDefined();
+
+    // Re-preparing already-annotated chapters must not re-run the
+    // glossary LLM call.
+    const glossaryCalls = () =>
+      mockLlmRequests.filter(b => b.includes('character glossary')).length;
+    const before = glossaryCalls();
+    await pipeline.processNovel([
+      { id: 1, text: 'Hero swings his sword.' },
+      { id: 2, text: 'A sorceress appears in the doorway.' },
+    ]);
+    expect(glossaryCalls()).toBe(before);
   });
 
   it('bootstraps glossary and voice map on first play (reader path)', async () => {

@@ -77,4 +77,78 @@ describe('VoiceAssigner', () => {
     const second = assigner.buildVoiceMap(glossary);
     expect(first.mappings.Sidekick).toEqual(second.mappings.Sidekick);
   });
+
+  describe('extendVoiceMap', () => {
+    it('keeps every existing assignment and voices only newcomers', () => {
+      const assigner = new VoiceAssigner({ mainCharacterEmotionalSlots: 2 });
+      const initial = assigner.buildVoiceMap(
+        makeGlossary([makeCharacter({ name: 'Hero', importance: 90 })]),
+      );
+
+      const extended = assigner.extendVoiceMap(
+        initial,
+        makeGlossary([
+          makeCharacter({ name: 'Hero', importance: 95 }),
+          makeCharacter({
+            name: 'Sorceress',
+            importance: 80,
+            aliases: ['The Witch'],
+          }),
+          makeCharacter({ name: 'Guard', importance: 5, gender: 'male' }),
+        ]),
+      );
+
+      expect(extended.mappings.Hero).toEqual(initial.mappings.Hero);
+      expect(extended.mappings.narrator).toEqual(initial.mappings.narrator);
+      expect(extended.mappings.Sorceress.kind).toBe('emotional');
+      expect(extended.mappings['The Witch']).toBe(extended.mappings.Sorceress);
+      expect(extended.mappings.Guard.kind).toBe('donation');
+    });
+
+    it('never gives a newcomer an emotional speaker already in use', () => {
+      const assigner = new VoiceAssigner({ mainCharacterEmotionalSlots: 3 });
+      const initial = assigner.buildVoiceMap(
+        makeGlossary([
+          makeCharacter({ name: 'A', importance: 90 }),
+          makeCharacter({ name: 'B', importance: 85, gender: 'male' }),
+        ]),
+      );
+      const extended = assigner.extendVoiceMap(
+        initial,
+        makeGlossary([
+          makeCharacter({ name: 'A', importance: 90 }),
+          makeCharacter({ name: 'B', importance: 85, gender: 'male' }),
+          makeCharacter({ name: 'C', importance: 80 }),
+        ]),
+      );
+
+      const emotionalIds = Object.entries(extended.mappings)
+        .filter(([name, a]) => name !== 'narrator' && a.kind === 'emotional')
+        .map(([, a]) => (a.kind === 'emotional' ? a.speakerId : ''));
+      expect(new Set(emotionalIds).size).toBe(emotionalIds.length);
+    });
+
+    it('override pins; reset unpins and reassigns only that character', () => {
+      const assigner = new VoiceAssigner({ mainCharacterEmotionalSlots: 0 });
+      const glossary = makeGlossary([
+        makeCharacter({ name: 'Hero' }),
+        makeCharacter({ name: 'Guard', gender: 'male' }),
+      ]);
+      let voiceMap = assigner.buildVoiceMap(glossary);
+      const guardVoice = voiceMap.mappings.Guard;
+
+      voiceMap = assigner.overrideVoice(voiceMap, 'Hero', {
+        kind: 'donation',
+        voiceId: 'pd_alba',
+        label: 'Hero (Alba)',
+      });
+      expect(voiceMap.mappings.Hero).toEqual(
+        expect.objectContaining({ voiceId: 'pd_alba', pinned: true }),
+      );
+
+      voiceMap = assigner.resetVoice(voiceMap, 'Hero', glossary);
+      expect(voiceMap.mappings.Hero.pinned).toBeUndefined();
+      expect(voiceMap.mappings.Guard).toEqual(guardVoice);
+    });
+  });
 });

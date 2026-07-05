@@ -31,6 +31,23 @@ const MAX_RETRY_WAIT_MS = 60_000;
 // chunks are sized to keep each response well under the output-token cap.
 const MAX_CHUNK_CHARS = 8000;
 
+/**
+ * Glossary building reads whole chapters at once; cap the combined
+ * input so a 10-chapter batch stays within sane request sizes.
+ * Character introductions cluster early in chapters, so truncating
+ * the tail loses little.
+ */
+const MAX_GLOSSARY_INPUT_CHARS = 60_000;
+
+const capGlossaryInput = (texts: string[]): string[] => {
+  const total = texts.reduce((sum, t) => sum + t.length, 0);
+  if (total <= MAX_GLOSSARY_INPUT_CHARS) {
+    return texts;
+  }
+  const perChapter = Math.floor(MAX_GLOSSARY_INPUT_CHARS / texts.length);
+  return texts.map(t => t.slice(0, perChapter));
+};
+
 const VALID_EMOTIONS: Emotion[] = [
   'neutral',
   'happy',
@@ -50,21 +67,49 @@ export class LLMAnnotator {
     this.config = config;
   }
 
+  /**
+   * Builds a character glossary — or, when `existing` is passed,
+   * merges newly read chapters into it (the glossary evolves batch by
+   * batch as the reader progresses through the novel).
+   */
   async buildGlossary(
     novelId: string,
     chapterTexts: string[],
+    existing?: CharacterGlossary,
   ): Promise<CharacterGlossary> {
-    const prompt = buildGlossaryPrompt(chapterTexts);
+    const prompt = buildGlossaryPrompt(
+      capGlossaryInput(chapterTexts),
+      existing,
+    );
     const response = await this.callLLM(prompt.system, prompt.user);
     const parsed = this.parseJSON<{
       characters: unknown;
       narratorGender: unknown;
     }>(response);
 
+    let characters = this.sanitizeCharacters(parsed.characters);
+    if (existing) {
+      // The model is told to return the full merged cast, but never
+      // trust it to: a dropped character would orphan an assigned
+      // voice. Union with the existing cast, preferring updates.
+      const byName = new Map(characters.map(c => [c.name, c]));
+      for (const known of existing.characters) {
+        if (!byName.has(known.name)) {
+          characters = [...characters, known];
+        }
+      }
+    }
+
     return {
       novelId,
-      characters: this.sanitizeCharacters(parsed.characters),
-      narratorGender: parsed.narratorGender === 'female' ? 'female' : 'male',
+      characters,
+      // Narrator gender is decided once — flipping it later would
+      // change the narrator voice mid-book.
+      narratorGender: existing
+        ? existing.narratorGender
+        : parsed.narratorGender === 'female'
+        ? 'female'
+        : 'male',
       createdAt: new Date().toISOString(),
     };
   }

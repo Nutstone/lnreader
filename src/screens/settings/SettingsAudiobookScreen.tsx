@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { Text, TextInput } from 'react-native-paper';
+import { Switch, Text, TextInput } from 'react-native-paper';
 
 import { Appbar, List, SafeAreaView } from '@components';
 import { useTheme, useAudiobookSettings } from '@hooks/persisted';
@@ -30,6 +30,7 @@ const AudiobookSettingsScreen = ({
     ttsPrecision,
     lookaheadSegments,
     mainCharacterEmotionalSlots,
+    renderDuringPrepare,
     setAudiobookSettings,
     setProviderSettings,
   } = useAudiobookSettings();
@@ -208,6 +209,39 @@ const AudiobookSettingsScreen = ({
         </List.Section>
 
         <List.Section>
+          <List.SubHeader theme={theme}>Prepare audiobook</List.SubHeader>
+          <Pressable
+            style={styles.switchRow}
+            onPress={() =>
+              setAudiobookSettings({
+                renderDuringPrepare: !renderDuringPrepare,
+              })
+            }
+          >
+            <View style={styles.switchLabel}>
+              <Text style={{ color: theme.onSurface }}>
+                Render audio while preparing
+              </Text>
+              <Text
+                variant="bodySmall"
+                style={{ color: theme.onSurfaceVariant }}
+              >
+                'Prepare audiobook' also synthesizes the chapters' audio so
+                playback starts instantly. Takes minutes per chapter and uses
+                ~10 MB each.
+              </Text>
+            </View>
+            <Switch
+              value={renderDuringPrepare === true}
+              onValueChange={value =>
+                setAudiobookSettings({ renderDuringPrepare: value })
+              }
+              color={theme.primary}
+            />
+          </Pressable>
+        </List.Section>
+
+        <List.Section>
           <List.SubHeader theme={theme}>
             {getString('audiobookSettings.lookaheadSegments')}
           </List.SubHeader>
@@ -281,6 +315,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   paddingBottom: { paddingBottom: 40 },
+  switchLabel: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  switchRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
   textInput: {
     fontSize: 14,
   },

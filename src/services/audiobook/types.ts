@@ -181,11 +181,15 @@ export type VoiceAssignment =
       kind: 'emotional';
       speakerId: string;
       label: string;
+      /** Set by a manual pick in the cast editor; survives auto
+       * reassignment ("reset to auto" clears it). */
+      pinned?: boolean;
     }
   | {
       kind: 'donation';
       voiceId: string;
       label: string;
+      pinned?: boolean;
     };
 
 export interface VoiceMap {

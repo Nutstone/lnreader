@@ -4,6 +4,7 @@ import { BackgroundTaskMetadata } from '@services/ServiceManager';
 import { NOVEL_STORAGE } from '@utils/Storages';
 import NativeFile from '@specs/NativeFile';
 import { AudiobookPipeline } from './pipeline';
+import { formatSetupProgress } from './setupProgress';
 import { AudiobookConfig, ChapterInput } from './types';
 import { htmlToText } from './htmlToText';
 import { getMMKVObject } from '@utils/mmkv/mmkv';
@@ -96,14 +97,48 @@ export const processAudiobook = async (
       }
     }
 
-    // Run the pipeline
+    // Run the pipeline. When render-ahead is on, annotation gets the
+    // first half of the progress bar and synthesis the second.
+    const renderAhead = settings?.renderDuringPrepare === true;
+    const annotationSpan = renderAhead ? 0.5 : 0.9;
     await pipeline.processNovel(chapters, progress => {
       setMeta(meta => ({
         ...meta,
         progressText: progress.message,
-        progress: 0.1 + progress.progress * 0.9,
+        progress: 0.1 + progress.progress * annotationSpan,
       }));
     });
+
+    if (renderAhead) {
+      try {
+        for (let i = 0; i < chapters.length; i++) {
+          const chapterId = chapters[i].id;
+          const base = 0.6 + (0.4 * i) / chapters.length;
+          const span = 0.4 / chapters.length;
+          await pipeline.renderChapterAudio(
+            chapterId,
+            (done, total) => {
+              setMeta(meta => ({
+                ...meta,
+                progressText: `Rendering audio ${i + 1}/${
+                  chapters.length
+                } (${done}/${total})`,
+                progress: base + span * (done / Math.max(1, total)),
+              }));
+            },
+            setup =>
+              setMeta(meta => ({
+                ...meta,
+                progressText: formatSetupProgress(setup),
+              })),
+          );
+        }
+      } finally {
+        // The model was loaded for rendering; don't leave ~150+ MB of
+        // sessions alive in a background task that's finished.
+        await pipeline.disposeRenderer();
+      }
+    }
 
     setMeta(meta => ({
       ...meta,

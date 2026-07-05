@@ -1,462 +1,141 @@
 [
- {
-  "text": "The sun rose over the valley.",
-  "ids": [
-   364,
-   1622,
-   3802,
-   408,
-   265,
-   260,
-   1314,
-   1602,
-   263
-  ],
-  "decoded": "The sun rose over the valley."
- },
- {
-  "text": "We march at dawn!",
-  "ids": [
-   374,
-   1685,
-   504,
-   309,
-   1093,
-   1421,
-   682
-  ],
-  "decoded": "We march at dawn!"
- },
- {
-  "text": "\"Halt!\" cried Javert, raising his lantern.",
-  "ids": [
-   694,
-   1356,
-   326,
-   274,
-   3181,
-   260,
-   2536,
-   278,
-   1102,
-   692,
-   274,
-   262,
-   260,
-   471,
-   595,
-   273,
-   376,
-   697,
-   2041,
-   306,
-   263
-  ],
-  "decoded": "\"Halt!\" cried Javert, raising his lantern."
- },
- {
-  "text": "It was 1832, and the barricades grew in the Rue Saint-Denis.",
-  "ids": [
-   333,
-   286,
-   260,
-   341,
-   547,
-   450,
-   365,
-   262,
-   269,
-   265,
-   1248,
-   1267,
-   1487,
-   261,
-   2640,
-   276,
-   265,
-   2106,
-   336,
-   1169,
-   356,
-   274,
-   337,
-   797,
-   439,
-   595,
-   263
-  ],
-  "decoded": "It was 1832, and the barricades grew in the Rue Saint-Denis."
- },
- {
-  "text": "Hello, world  — with an em-dash and… ellipsis?",
-  "ids": [
-   2994,
-   262,
-   578,
-   260,
-   260,
-   3133,
-   291,
-   353,
-   260,
-   897,
-   337,
-   307,
-   1911,
-   269,
-   230,
-   132,
-   170,
-   260,
-   516,
-   2229,
-   261,
-   595,
-   292
-  ],
-  "decoded": "Hello, world  — with an em-dash and… ellipsis?"
- },
- {
-  "text": "Don't stop; can't won't shan't.",
-  "ids": [
-   1201,
-   264,
-   274,
-   1079,
-   1230,
-   303,
-   264,
-   274,
-   815,
-   264,
-   274,
-   260,
-   261,
-   1562,
-   264,
-   274,
-   263
-  ],
-  "decoded": "Don't stop; can't won't shan't."
- },
- {
-  "text": "Numbers: 3.14159, 42, 1,000,000.",
-  "ids": [
-   260,
-   2974,
-   261,
-   3244,
-   260,
-   450,
-   263,
-   341,
-   487,
-   341,
-   437,
-   501,
-   262,
-   260,
-   487,
-   365,
-   262,
-   260,
-   341,
-   262,
-   316,
-   316,
-   316,
-   262,
-   316,
-   316,
-   316,
-   263
-  ],
-  "decoded": "Numbers: 3.14159, 42, 1,000,000."
- },
- {
-  "text": "Ünïcödé çharacters and naïve café résumé.",
-  "ids": [
-   260,
-   199,
-   160,
-   306,
-   199,
-   179,
-   440,
-   2451,
-   307,
-   745,
-   260,
-   2467,
-   739,
-   1233,
-   261,
-   269,
-   913,
-   199,
-   179,
-   314,
-   331,
-   2250,
-   745,
-   670,
-   745,
-   261,
-   766,
-   745,
-   263
-  ],
-  "decoded": "Ünïcödé çharacters and naïve café résumé."
- },
- {
-  "text": "日本語のテキスト mixed with English.",
-  "ids": [
-   260,
-   234,
-   155,
-   169,
-   234,
-   160,
-   176,
-   236,
-   174,
-   162,
-   231,
-   133,
-   178,
-   231,
-   135,
-   138,
-   231,
-   134,
-   177,
-   231,
-   134,
-   189,
-   231,
-   135,
-   140,
-   1833,
-   278,
-   291,
-   1852,
-   851,
-   263
-  ],
-  "decoded": "日本語のテキスト mixed with English."
- },
- {
-  "text": "A",
-  "ids": [
-   383
-  ],
-  "decoded": "A"
- },
- {
-  "text": "a lowercase start gets capitalized elsewhere, not here",
-  "ids": [
-   267,
-   2167,
-   841,
-   563,
-   426,
-   318,
-   261,
-   2824,
-   2158,
-   734,
-   917,
-   262,
-   300,
-   375
-  ],
-  "decoded": "a lowercase start gets capitalized elsewhere, not here"
- },
- {
-  "text": "   leading and trailing spaces   ",
-  "ids": [
-   260,
-   260,
-   260,
-   893,
-   273,
-   269,
-   3007,
-   273,
-   947,
-   261,
-   260,
-   260,
-   260
-  ],
-  "decoded": "   leading and trailing spaces   "
- },
- {
-  "text": "Tabs\tand\nnewlines normalized upstream.",
-  "ids": [
-   602,
-   1222,
-   261,
-   13,
-   1096,
-   14,
-   532,
-   479,
-   994,
-   261,
-   2731,
-   2158,
-   330,
-   2179,
-   263
-  ],
-  "decoded": "Tabs\tand\nnewlines normalized upstream."
- },
- {
-  "text": "Quotes 'single' and \"double\" and `backtick`.",
-  "ids": [
-   260,
-   2608,
-   1025,
-   371,
-   260,
-   264,
-   1240,
-   264,
-   269,
-   694,
-   2333,
-   3877,
-   269,
-   260,
-   100,
-   1822,
-   274,
-   1376,
-   100,
-   263
-  ],
-  "decoded": "Quotes 'single' and \"double\" and `backtick`."
- },
- {
-  "text": "Mr. Smith went to Washington, D.C. at 9 a.m.",
-  "ids": [
-   1519,
-   263,
-   3669,
-   623,
-   266,
-   3439,
-   273,
-   767,
-   262,
-   768,
-   263,
-   732,
-   263,
-   309,
-   260,
-   501,
-   267,
-   263,
-   283,
-   263
-  ],
-  "decoded": "Mr. Smith went to Washington, D.C. at 9 a.m."
- },
- {
-  "text": "supercalifragilisticexpialidocious antidisestablishmentarianism",
-  "ids": [
-   943,
-   841,
-   566,
-   2199,
-   869,
-   457,
-   1825,
-   1838,
-   1229,
-   326,
-   594,
-   393,
-   1814,
-   2235,
-   904,
-   261,
-   552,
-   1222,
-   3038,
-   451,
-   3645,
-   1189
-  ],
-  "decoded": "supercalifragilisticexpialidocious antidisestablishmentarianism"
- },
- {
-  "text": "!!!???...",
-  "ids": [
-   260,
-   682,
-   682,
-   682,
-   292,
-   292,
-   292,
-   799
-  ],
-  "decoded": "!!!???..."
- },
- {
-  "text": ".!...?",
-  "ids": [
-   260,
-   263,
-   682,
-   799,
-   292
-  ],
-  "decoded": ".!...?"
- },
- {
-  "text": ",;:",
-  "ids": [
-   260,
-   262,
-   1230,
-   3244
-  ],
-  "decoded": ",;:"
- },
- {
-  "text": "The quick brown fox jumps over the lazy dog 0123456789 times.",
-  "ids": [
-   364,
-   976,
-   3683,
-   521,
-   1923,
-   1609,
-   261,
-   408,
-   265,
-   697,
-   690,
-   327,
-   1497,
-   260,
-   316,
-   341,
-   365,
-   450,
-   487,
-   437,
-   543,
-   579,
-   547,
-   501,
-   835,
-   263
-  ],
-  "decoded": "The quick brown fox jumps over the lazy dog 0123456789 times."
- }
+  {
+    "text": "The sun rose over the valley.",
+    "ids": [364, 1622, 3802, 408, 265, 260, 1314, 1602, 263],
+    "decoded": "The sun rose over the valley."
+  },
+  {
+    "text": "We march at dawn!",
+    "ids": [374, 1685, 504, 309, 1093, 1421, 682],
+    "decoded": "We march at dawn!"
+  },
+  {
+    "text": "\"Halt!\" cried Javert, raising his lantern.",
+    "ids": [
+      694, 1356, 326, 274, 3181, 260, 2536, 278, 1102, 692, 274, 262, 260, 471,
+      595, 273, 376, 697, 2041, 306, 263
+    ],
+    "decoded": "\"Halt!\" cried Javert, raising his lantern."
+  },
+  {
+    "text": "It was 1832, and the barricades grew in the Rue Saint-Denis.",
+    "ids": [
+      333, 286, 260, 341, 547, 450, 365, 262, 269, 265, 1248, 1267, 1487, 261,
+      2640, 276, 265, 2106, 336, 1169, 356, 274, 337, 797, 439, 595, 263
+    ],
+    "decoded": "It was 1832, and the barricades grew in the Rue Saint-Denis."
+  },
+  {
+    "text": "Hello, world  — with an em-dash and… ellipsis?",
+    "ids": [
+      2994, 262, 578, 260, 260, 3133, 291, 353, 260, 897, 337, 307, 1911, 269,
+      230, 132, 170, 260, 516, 2229, 261, 595, 292
+    ],
+    "decoded": "Hello, world  — with an em-dash and… ellipsis?"
+  },
+  {
+    "text": "Don't stop; can't won't shan't.",
+    "ids": [
+      1201, 264, 274, 1079, 1230, 303, 264, 274, 815, 264, 274, 260, 261, 1562,
+      264, 274, 263
+    ],
+    "decoded": "Don't stop; can't won't shan't."
+  },
+  {
+    "text": "Numbers: 3.14159, 42, 1,000,000.",
+    "ids": [
+      260, 2974, 261, 3244, 260, 450, 263, 341, 487, 341, 437, 501, 262, 260,
+      487, 365, 262, 260, 341, 262, 316, 316, 316, 262, 316, 316, 316, 263
+    ],
+    "decoded": "Numbers: 3.14159, 42, 1,000,000."
+  },
+  {
+    "text": "Ünïcödé çharacters and naïve café résumé.",
+    "ids": [
+      260, 199, 160, 306, 199, 179, 440, 2451, 307, 745, 260, 2467, 739, 1233,
+      261, 269, 913, 199, 179, 314, 331, 2250, 745, 670, 745, 261, 766, 745, 263
+    ],
+    "decoded": "Ünïcödé çharacters and naïve café résumé."
+  },
+  {
+    "text": "日本語のテキスト mixed with English.",
+    "ids": [
+      260, 234, 155, 169, 234, 160, 176, 236, 174, 162, 231, 133, 178, 231, 135,
+      138, 231, 134, 177, 231, 134, 189, 231, 135, 140, 1833, 278, 291, 1852,
+      851, 263
+    ],
+    "decoded": "日本語のテキスト mixed with English."
+  },
+  {
+    "text": "A",
+    "ids": [383],
+    "decoded": "A"
+  },
+  {
+    "text": "a lowercase start gets capitalized elsewhere, not here",
+    "ids": [
+      267, 2167, 841, 563, 426, 318, 261, 2824, 2158, 734, 917, 262, 300, 375
+    ],
+    "decoded": "a lowercase start gets capitalized elsewhere, not here"
+  },
+  {
+    "text": "   leading and trailing spaces   ",
+    "ids": [260, 260, 260, 893, 273, 269, 3007, 273, 947, 261, 260, 260, 260],
+    "decoded": "   leading and trailing spaces   "
+  },
+  {
+    "text": "Tabs\tand\nnewlines normalized upstream.",
+    "ids": [
+      602, 1222, 261, 13, 1096, 14, 532, 479, 994, 261, 2731, 2158, 330, 2179,
+      263
+    ],
+    "decoded": "Tabs\tand\nnewlines normalized upstream."
+  },
+  {
+    "text": "Quotes 'single' and \"double\" and `backtick`.",
+    "ids": [
+      260, 2608, 1025, 371, 260, 264, 1240, 264, 269, 694, 2333, 3877, 269, 260,
+      100, 1822, 274, 1376, 100, 263
+    ],
+    "decoded": "Quotes 'single' and \"double\" and `backtick`."
+  },
+  {
+    "text": "Mr. Smith went to Washington, D.C. at 9 a.m.",
+    "ids": [
+      1519, 263, 3669, 623, 266, 3439, 273, 767, 262, 768, 263, 732, 263, 309,
+      260, 501, 267, 263, 283, 263
+    ],
+    "decoded": "Mr. Smith went to Washington, D.C. at 9 a.m."
+  },
+  {
+    "text": "supercalifragilisticexpialidocious antidisestablishmentarianism",
+    "ids": [
+      943, 841, 566, 2199, 869, 457, 1825, 1838, 1229, 326, 594, 393, 1814,
+      2235, 904, 261, 552, 1222, 3038, 451, 3645, 1189
+    ],
+    "decoded": "supercalifragilisticexpialidocious antidisestablishmentarianism"
+  },
+  {
+    "text": "!!!???...",
+    "ids": [260, 682, 682, 682, 292, 292, 292, 799],
+    "decoded": "!!!???..."
+  },
+  {
+    "text": ".!...?",
+    "ids": [260, 263, 682, 799, 292],
+    "decoded": ".!...?"
+  },
+  {
+    "text": ",;:",
+    "ids": [260, 262, 1230, 3244],
+    "decoded": ",;:"
+  },
+  {
+    "text": "The quick brown fox jumps over the lazy dog 0123456789 times.",
+    "ids": [
+      364, 976, 3683, 521, 1923, 1609, 261, 408, 265, 697, 690, 327, 1497, 260,
+      316, 341, 365, 450, 487, 437, 543, 579, 547, 501, 835, 263
+    ],
+    "decoded": "The quick brown fox jumps over the lazy dog 0123456789 times."
+  }
 ]

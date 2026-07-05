@@ -8,12 +8,8 @@ import {
   sanitizeTTSPrecision,
 } from '@hooks/persisted/useAudiobookSettings';
 import { AudiobookPipeline } from './pipeline';
-import {
-  AudioSegment,
-  ChapterAnnotation,
-  AudiobookConfig,
-  TTSSetupProgress,
-} from './types';
+import { formatSetupProgress } from './setupProgress';
+import { AudioSegment, ChapterAnnotation, AudiobookConfig } from './types';
 
 export type AudiobookState = 'idle' | 'processing' | 'playing' | 'paused';
 
@@ -403,25 +399,3 @@ export class AudiobookPlayer {
     }
   }
 }
-
-const MEGABYTE = 1024 * 1024;
-
-const formatSetupProgress = (progress: TTSSetupProgress): string => {
-  switch (progress.stage) {
-    case 'bundle':
-      // MB counts, not a percent: progress is per completed file and
-      // one model file dominates the bundle, so a percent would sit
-      // frozen for most of the download and read as a hang.
-      return `Downloading TTS model… ${Math.round(
-        progress.doneBytes / MEGABYTE,
-      )} / ${Math.round(progress.totalBytes / MEGABYTE)} MB`;
-    case 'model-load':
-      return 'Loading TTS model…';
-    case 'voices':
-      return progress.total > 0
-        ? `Preparing voices… ${progress.done}/${progress.total}`
-        : 'Preparing voices…';
-    case 'synthesis':
-      return 'Generating audio…';
-  }
-};
