@@ -137,8 +137,23 @@ export class VoiceAssigner {
       ...voiceMap.mappings,
     };
 
+    // Self-heal a missing narrator entry (e.g. after a narrator
+    // 'reset to auto') — every chapter has narrator segments, so a
+    // narrator-less map would break all playback.
+    if (!mappings.narrator) {
+      const narratorSpeaker =
+        findEmotionalSpeaker(
+          this.options.narratorSpeakerId ?? DEFAULT_NARRATOR_SPEAKER_ID,
+        ) ?? EMOTIONAL_SPEAKERS[0];
+      mappings.narrator = {
+        kind: 'emotional',
+        speakerId: narratorSpeaker.id,
+        label: 'Narrator',
+      };
+    }
+
     const narratorSpeakerId =
-      mappings.narrator?.kind === 'emotional'
+      mappings.narrator.kind === 'emotional'
         ? mappings.narrator.speakerId
         : this.options.narratorSpeakerId ?? DEFAULT_NARRATOR_SPEAKER_ID;
 
@@ -206,24 +221,37 @@ export class VoiceAssigner {
     };
   }
 
+  /**
+   * Pins a manual voice pick. The character's aliases (when the
+   * glossary is provided) follow along — segments the annotator
+   * attributes to an alias must not keep speaking in the old voice.
+   */
   overrideVoice(
     voiceMap: VoiceMap,
     characterName: string,
     assignment: VoiceAssignment,
+    glossary?: CharacterGlossary,
   ): VoiceMap {
+    const pinnedAssignment: VoiceAssignment = { ...assignment, pinned: true };
+    const mappings = {
+      ...voiceMap.mappings,
+      [characterName]: pinnedAssignment,
+    };
+    for (const alias of this.aliasesOf(characterName, glossary)) {
+      mappings[alias] = pinnedAssignment;
+    }
     return {
       ...voiceMap,
-      mappings: {
-        ...voiceMap.mappings,
-        [characterName]: { ...assignment, pinned: true },
-      },
+      mappings,
       updatedAt: new Date().toISOString(),
     };
   }
 
   /**
    * Clears a manual pick and reassigns the character as if it were a
-   * newcomer (stability for everyone else is preserved).
+   * newcomer (stability for everyone else is preserved). Alias
+   * entries are cleared with the primary name — a stale alias would
+   * both hold the old voice and keep its emotional slot occupied.
    */
   resetVoice(
     voiceMap: VoiceMap,
@@ -232,7 +260,19 @@ export class VoiceAssigner {
   ): VoiceMap {
     const mappings = { ...voiceMap.mappings };
     delete mappings[characterName];
+    for (const alias of this.aliasesOf(characterName, glossary)) {
+      delete mappings[alias];
+    }
     return this.extendVoiceMap({ ...voiceMap, mappings }, glossary);
+  }
+
+  private aliasesOf(
+    characterName: string,
+    glossary?: CharacterGlossary,
+  ): string[] {
+    return (
+      glossary?.characters.find(c => c.name === characterName)?.aliases ?? []
+    );
   }
 
   private rankByImportance(characters: Character[]): Character[] {

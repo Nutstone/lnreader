@@ -382,30 +382,51 @@ export class AudiobookPipeline {
 
 /**
  * Splits chapter text into narrator-sized segments (~240 chars) at
- * sentence boundaries, paragraph-aware. No lookbehind — Hermes'
- * regex support varies across RN versions.
+ * sentence boundaries (Latin and CJK terminators), paragraph-aware.
+ * Sentences longer than the budget are hard-split — preferably at
+ * whitespace — because the TTS engine's own chunker also relies on
+ * punctuation and would otherwise receive an unboundedly long input.
+ * No lookbehind — Hermes' regex support varies across RN versions.
  */
+const SENTENCE_SPLIT =
+  /[^.!?…。！？]+[.!?…。！？]+["”'’」』]?\s*|[^.!?…。！？]+$/g;
+
+const hardSplit = (sentence: string, budget: number): string[] => {
+  const pieces: string[] = [];
+  let rest = sentence;
+  while (rest.length > budget) {
+    const window = rest.slice(0, budget);
+    const cut = window.lastIndexOf(' ');
+    // CJK has no spaces — fall back to a clean slice at the budget.
+    const at = cut > budget / 2 ? cut : budget;
+    pieces.push(rest.slice(0, at).trim());
+    rest = rest.slice(at).trim();
+  }
+  if (rest) {
+    pieces.push(rest);
+  }
+  return pieces;
+};
+
 export const splitForNarration = (text: string): string[] => {
+  const budget = AudiobookPipeline.FALLBACK_SEGMENT_CHARS;
   const segments: string[] = [];
   for (const paragraph of text.split(/\n+/)) {
     const trimmed = paragraph.trim();
     if (!trimmed) {
       continue;
     }
-    const sentences = trimmed.match(/[^.!?…]+[.!?…]+["”'’]?\s*|[^.!?…]+$/g) ?? [
-      trimmed,
-    ];
+    const sentences = (trimmed.match(SENTENCE_SPLIT) ?? [trimmed]).flatMap(
+      sentence =>
+        sentence.length > budget ? hardSplit(sentence, budget) : [sentence],
+    );
     let current = '';
     for (const sentence of sentences) {
-      if (
-        current &&
-        current.length + sentence.length >
-          AudiobookPipeline.FALLBACK_SEGMENT_CHARS
-      ) {
+      if (current && current.length + sentence.length > budget) {
         segments.push(current.trim());
         current = '';
       }
-      current += sentence;
+      current += sentence.endsWith(' ') ? sentence : sentence + ' ';
     }
     if (current.trim()) {
       segments.push(current.trim());

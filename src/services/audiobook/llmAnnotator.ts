@@ -44,8 +44,29 @@ const capGlossaryInput = (texts: string[]): string[] => {
   if (total <= MAX_GLOSSARY_INPUT_CHARS) {
     return texts;
   }
-  const perChapter = Math.floor(MAX_GLOSSARY_INPUT_CHARS / texts.length);
-  return texts.map(t => t.slice(0, perChapter));
+  // Water-filling: chapters shorter than their fair share keep their
+  // full text; the unused budget flows to the longer ones.
+  const caps = new Map<number, number>();
+  let budget = MAX_GLOSSARY_INPUT_CHARS;
+  let pending = texts
+    .map((t, i) => ({ i, length: t.length }))
+    .sort((a, b) => a.length - b.length);
+  while (pending.length) {
+    const fairShare = Math.floor(budget / pending.length);
+    const fits = pending.filter(t => t.length <= fairShare);
+    if (fits.length === 0) {
+      for (const t of pending) {
+        caps.set(t.i, fairShare);
+      }
+      break;
+    }
+    for (const t of fits) {
+      caps.set(t.i, t.length);
+      budget -= t.length;
+    }
+    pending = pending.filter(t => t.length > fairShare);
+  }
+  return texts.map((t, i) => t.slice(0, caps.get(i) ?? t.length));
 };
 
 const VALID_EMOTIONS: Emotion[] = [
@@ -91,10 +112,20 @@ export class LLMAnnotator {
     if (existing) {
       // The model is told to return the full merged cast, but never
       // trust it to: a dropped character would orphan an assigned
-      // voice. Union with the existing cast, preferring updates.
-      const byName = new Map(characters.map(c => [c.name, c]));
+      // voice, and a re-cased name ("HERO" for "Hero") would split
+      // one character across two voices. Union case-insensitively,
+      // preferring the model's updated fields but keeping the exact
+      // existing name — it's the persisted voice-map key.
+      const existingByKey = new Map(
+        existing.characters.map(c => [c.name.toLowerCase(), c]),
+      );
+      characters = characters.map(c => {
+        const known = existingByKey.get(c.name.toLowerCase());
+        return known ? { ...c, name: known.name } : c;
+      });
+      const seen = new Set(characters.map(c => c.name.toLowerCase()));
       for (const known of existing.characters) {
-        if (!byName.has(known.name)) {
+        if (!seen.has(known.name.toLowerCase())) {
           characters = [...characters, known];
         }
       }

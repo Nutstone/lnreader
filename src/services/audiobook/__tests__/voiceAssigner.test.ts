@@ -128,6 +128,52 @@ describe('VoiceAssigner', () => {
       expect(new Set(emotionalIds).size).toBe(emotionalIds.length);
     });
 
+    it('restores a missing narrator mapping (self-heal)', () => {
+      const assigner = new VoiceAssigner();
+      const glossary = makeGlossary([makeCharacter({ name: 'Hero' })]);
+      let voiceMap = assigner.buildVoiceMap(glossary);
+      // 'Auto' on the narrator row deletes and re-extends:
+      voiceMap = assigner.resetVoice(voiceMap, 'narrator', glossary);
+      expect(voiceMap.mappings.narrator).toEqual(
+        expect.objectContaining({
+          kind: 'emotional',
+          speakerId: DEFAULT_NARRATOR_SPEAKER_ID,
+        }),
+      );
+    });
+
+    it('override and reset keep aliases in lockstep with the primary name', () => {
+      const assigner = new VoiceAssigner({ mainCharacterEmotionalSlots: 2 });
+      const glossary = makeGlossary([
+        makeCharacter({
+          name: 'Sorceress',
+          importance: 90,
+          aliases: ['The Witch'],
+        }),
+      ]);
+      let voiceMap = assigner.buildVoiceMap(glossary);
+      const original = voiceMap.mappings.Sorceress;
+
+      voiceMap = assigner.overrideVoice(
+        voiceMap,
+        'Sorceress',
+        { kind: 'donation', voiceId: 'pd_alba', label: 'Sorceress (Alba)' },
+        glossary,
+      );
+      // The alias follows the pin — no two-voices-one-character.
+      expect(voiceMap.mappings['The Witch']).toEqual(
+        voiceMap.mappings.Sorceress,
+      );
+
+      voiceMap = assigner.resetVoice(voiceMap, 'Sorceress', glossary);
+      // Reset frees the alias too, so the original emotional slot is
+      // reusable and both names land on the same fresh assignment.
+      expect(voiceMap.mappings['The Witch']).toEqual(
+        voiceMap.mappings.Sorceress,
+      );
+      expect(voiceMap.mappings.Sorceress).toEqual(original);
+    });
+
     it('override pins; reset unpins and reassigns only that character', () => {
       const assigner = new VoiceAssigner({ mainCharacterEmotionalSlots: 0 });
       const glossary = makeGlossary([

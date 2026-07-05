@@ -17,6 +17,15 @@ export type AudiobookState = 'idle' | 'processing' | 'playing' | 'paused';
 export interface AudiobookPosition {
   chapterId: number;
   segmentIndex: number;
+  /**
+   * Which segmentation the index refers to — fallback (narrator
+   * splitter) and full (LLM annotation) segment the same chapter
+   * differently, so an index from one is meaningless in the other.
+   */
+  mode: 'full' | 'fallback';
+  /** Segment count of that segmentation; a mismatch (e.g. changed
+   * chapter text) invalidates the position. */
+  totalSegments: number;
   updatedAt: string;
 }
 
@@ -49,6 +58,7 @@ export class AudiobookPlayer {
   private segmentResolvers: (() => void)[] = [];
   private idleUnloadTimer: ReturnType<typeof setTimeout> | null = null;
   private currentChapterId = 0;
+  private currentMode: AudiobookPosition['mode'] = 'full';
   /** Segments skipped at the start when resuming mid-chapter. */
   private indexOffset = 0;
   /** Full segment count of the chapter (before resume slicing). */
@@ -132,6 +142,8 @@ export class AudiobookPlayer {
     store[this.currentNovelId] = {
       chapterId: this.currentChapterId,
       segmentIndex: this.currentIndex + this.indexOffset,
+      mode: this.currentMode,
+      totalSegments: this.totalSegments,
       updatedAt: new Date().toISOString(),
     };
     setMMKVObject(AUDIOBOOK_POSITIONS, store);
@@ -213,7 +225,7 @@ export class AudiobookPlayer {
     chapterText: string,
     chapterId: number,
     novelId: string,
-    resumeIndex: number = 0,
+    resume?: AudiobookPosition,
   ): Promise<void> {
     await this.stop();
     const token = ++this.setupToken;
@@ -271,11 +283,21 @@ export class AudiobookPlayer {
 
       // Resume mid-chapter by slicing off already-heard segments —
       // segments are independent, so skipped ones are never rendered.
+      // Only positions from the SAME segmentation apply: fallback and
+      // LLM segment boundaries differ, and changed chapter text
+      // shifts the count.
+      this.currentMode = isFallback ? 'fallback' : 'full';
       this.totalSegments = annotation.segments.length;
-      this.indexOffset =
-        resumeIndex > 0 && resumeIndex < annotation.segments.length - 1
-          ? resumeIndex
+      const resumeIndex =
+        resume &&
+        resume.chapterId === chapterId &&
+        resume.mode === this.currentMode &&
+        resume.totalSegments === annotation.segments.length &&
+        resume.segmentIndex > 0 &&
+        resume.segmentIndex < annotation.segments.length
+          ? resume.segmentIndex
           : 0;
+      this.indexOffset = resumeIndex;
       if (this.indexOffset > 0) {
         annotation = {
           ...annotation,

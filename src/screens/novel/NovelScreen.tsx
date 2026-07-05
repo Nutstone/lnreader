@@ -36,6 +36,13 @@ import ServiceManager from '@services/ServiceManager';
 import { AUDIOBOOK_STORAGE } from '@utils/Storages';
 import NativeFile from '@specs/NativeFile';
 import { showToast } from '@utils/showToast';
+import { getMMKVObject } from '@utils/mmkv/mmkv';
+import {
+  AudiobookSettings,
+  AUDIOBOOK_SETTINGS,
+  isLLMConfigured,
+  resolveLLMConfig,
+} from '@hooks/persisted/useAudiobookSettings';
 
 const Novel = ({ route, navigation }: NovelScreenProps) => {
   const {
@@ -113,16 +120,36 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
       if (!novel) {
         return;
       }
+      // Preparation is the LLM stage — it can't run keyless (playback
+      // can, via the narrator fallback). Fail here, not in a
+      // background notification minutes later.
+      if (
+        !isLLMConfigured(
+          resolveLLMConfig(
+            getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS),
+          ),
+        )
+      ) {
+        showToast('Set an LLM API key in Audiobook Settings first.');
+        return;
+      }
       const unread = chapters.filter(c => c.unread);
       const pool = unread.length > 0 ? unread : chapters;
-      const pending = pool
-        .filter(
-          c =>
-            !NativeFile.exists(
-              `${AUDIOBOOK_STORAGE}/${novel.id}/annotations/${c.id}.json`,
-            ),
-        )
-        .slice(0, amount);
+      // Early-exit scan: novels can have thousands of loaded chapters
+      // and NativeFile.exists is a sync native call per probe.
+      const pending: ChapterInfo[] = [];
+      for (const c of pool) {
+        if (pending.length >= amount) {
+          break;
+        }
+        if (
+          !NativeFile.exists(
+            `${AUDIOBOOK_STORAGE}/${novel.id}/annotations/${c.id}.json`,
+          )
+        ) {
+          pending.push(c);
+        }
+      }
       if (pending.length === 0) {
         showToast('Next chapters are already prepared');
         return;

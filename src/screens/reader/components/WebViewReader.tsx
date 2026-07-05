@@ -637,13 +637,13 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
                 isPlaying: true,
               });
               // Resume mid-chapter when this is the chapter we last
-              // listened to.
-              const stored = getAudiobookPosition(String(novel?.id || ''));
+              // listened to (the player validates chapter, mode and
+              // segmentation before applying it).
               audiobookPlayerRef.current.startChapter(
                 event.data,
                 chapter.id,
                 String(novel?.id || ''),
-                stored?.chapterId === chapter.id ? stored.segmentIndex : 0,
+                getAudiobookPosition(String(novel?.id || '')),
               );
             }
             break;

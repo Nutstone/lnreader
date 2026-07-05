@@ -19,24 +19,29 @@ const MODEL_DIRS = ['bundles', 'embeddings', 'voices'];
 const AUDIO_DIR = 'audio';
 
 const dirSize = async (path: string): Promise<number> => {
-  if (!NativeFile.exists(path)) {
-    return 0;
-  }
   let total = 0;
-  const stack = [path];
-  while (stack.length) {
-    const dir = stack.pop()!;
-    for (const entry of NativeFile.readDir(dir)) {
-      if (entry.isDirectory) {
-        stack.push(entry.path);
-      } else {
-        try {
-          total += (await FileSystem.stat(entry.path)).size ?? 0;
-        } catch {
-          // Files may vanish while we walk (cache eviction) — skip.
+  try {
+    if (!NativeFile.exists(path)) {
+      return 0;
+    }
+    const stack = [path];
+    while (stack.length) {
+      const dir = stack.pop()!;
+      for (const entry of NativeFile.readDir(dir)) {
+        if (entry.isDirectory) {
+          stack.push(entry.path);
+        } else {
+          try {
+            total += (await FileSystem.stat(entry.path)).size ?? 0;
+          } catch {
+            // Files may vanish while we walk (cache eviction) — skip.
+          }
         }
       }
     }
+  } catch {
+    // Directory vanished mid-walk (concurrent clear) — report what
+    // was counted so far instead of hanging the row on '…'.
   }
   return total;
 };
@@ -106,23 +111,43 @@ const AudiobookSettingsScreen = ({
   }, []);
 
   useEffect(() => {
-    refreshStorage();
+    refreshStorage().catch(() => {});
   }, [refreshStorage]);
+
+  // Two-tap confirm: the first tap arms the button for a few
+  // seconds, the second deletes. Cheap insurance against fat-
+  // fingering away a 450 MB model download.
+  const [armedDelete, setArmedDelete] = useState<string | null>(null);
+  useEffect(() => {
+    if (!armedDelete) {
+      return;
+    }
+    const timer = setTimeout(() => setArmedDelete(null), 4000);
+    return () => clearTimeout(timer);
+  }, [armedDelete]);
 
   const clearDirs = useCallback(
     (dirs: string[], what: string) => {
+      if (armedDelete !== what) {
+        setArmedDelete(what);
+        return;
+      }
+      setArmedDelete(null);
       for (const dir of dirs) {
         const path = `${AUDIOBOOK_CACHE_STORAGE}/${dir}`;
-        if (NativeFile.exists(path)) {
-          try {
+        try {
+          if (NativeFile.exists(path)) {
             NativeFile.unlink(path);
-          } catch {}
-        }
+          }
+          // Recreate immediately: live AudioCache/downloader
+          // instances memoize that their directory exists.
+          NativeFile.mkdir(path);
+        } catch {}
       }
       showToast(`${what} deleted`);
-      refreshStorage();
+      refreshStorage().catch(() => {});
     },
-    [refreshStorage],
+    [armedDelete, refreshStorage],
   );
 
   return (
@@ -350,7 +375,11 @@ const AudiobookSettingsScreen = ({
             <Pressable
               onPress={() => clearDirs(MODEL_DIRS, 'Model & voice files')}
             >
-              <Text style={{ color: theme.primary }}>Delete</Text>
+              <Text style={{ color: theme.primary }}>
+                {armedDelete === 'Model & voice files'
+                  ? 'Tap to confirm'
+                  : 'Delete'}
+              </Text>
             </Pressable>
           </View>
           <View style={styles.storageRow}>
@@ -364,7 +393,9 @@ const AudiobookSettingsScreen = ({
               </Text>
             </View>
             <Pressable onPress={() => clearDirs([AUDIO_DIR], 'Rendered audio')}>
-              <Text style={{ color: theme.primary }}>Delete</Text>
+              <Text style={{ color: theme.primary }}>
+                {armedDelete === 'Rendered audio' ? 'Tap to confirm' : 'Delete'}
+              </Text>
             </Pressable>
           </View>
         </List.Section>

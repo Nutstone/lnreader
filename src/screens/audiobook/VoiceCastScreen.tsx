@@ -30,6 +30,7 @@ import { showToast } from '@utils/showToast';
 import NativeFile from '@specs/NativeFile';
 import { AUDIOBOOK_CACHE_STORAGE, AUDIOBOOK_STORAGE } from '@utils/Storages';
 import { VoiceCastScreenProps } from '@navigators/types';
+import ServiceManager from '@services/ServiceManager';
 
 import { VoiceAssigner } from '@services/audiobook/voiceAssigner';
 import { TTSRenderer } from '@services/audiobook/ttsRenderer';
@@ -86,16 +87,34 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
   }, []);
 
   useEffect(() => {
-    setGlossary(readJSON<CharacterGlossary>(`${novelDir}/glossary.json`));
-    const map = readJSON<VoiceMap>(`${novelDir}/voice-map.json`);
-    setVoiceMap(
-      map && map.schemaVersion === VOICE_BANK_SCHEMA_VERSION ? map : null,
+    const loadedGlossary = readJSON<CharacterGlossary>(
+      `${novelDir}/glossary.json`,
     );
-  }, [novelDir]);
+    setGlossary(loadedGlossary);
+    const map = readJSON<VoiceMap>(`${novelDir}/voice-map.json`);
+    if (map && map.schemaVersion === VOICE_BANK_SCHEMA_VERSION) {
+      setVoiceMap(map);
+    } else if (loadedGlossary) {
+      // Missing or schema-outdated map with a glossary present:
+      // rebuild it here (playback would do the same) so the editor
+      // isn't blocked behind another prepare/playback run.
+      const rebuilt = assigner.buildVoiceMap(loadedGlossary);
+      NativeFile.writeFile(
+        `${novelDir}/voice-map.json`,
+        JSON.stringify(rebuilt, null, 2),
+      );
+      setVoiceMap(rebuilt);
+    } else {
+      setVoiceMap(null);
+    }
+  }, [assigner, novelDir]);
 
-  // Release the preview engine + player when leaving the screen.
+  // Release the preview engine + player when leaving the screen, and
+  // stop an in-flight preview from playing over the next screen.
+  const unmounted = useRef(false);
   useEffect(() => {
     return () => {
+      unmounted.current = true;
       soundRef.current?.unloadAsync().catch(() => {});
       rendererRef.current?.dispose().catch(() => {});
     };
@@ -147,14 +166,19 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
         return;
       }
       persistVoiceMap(
-        assigner.overrideVoice(voiceMap, characterName, {
-          ...assignment,
-          label: `${characterName} (${assignment.label})`,
-        }),
+        assigner.overrideVoice(
+          voiceMap,
+          characterName,
+          {
+            ...assignment,
+            label: `${characterName} (${assignment.label})`,
+          },
+          glossary ?? undefined,
+        ),
       );
       setEditing(null);
     },
-    [assigner, persistVoiceMap, voiceMap],
+    [assigner, glossary, persistVoiceMap, voiceMap],
   );
 
   const resetVoice = useCallback(
@@ -170,6 +194,16 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
 
   const previewVoice = useCallback(async (assignment: VoiceAssignment) => {
     if (previewBusy.current) {
+      return;
+    }
+    // A running prepare task may already hold a full model instance;
+    // a second one here could OOM low-end devices.
+    if (
+      ServiceManager.manager
+        .getTaskList()
+        .some(t => t.task?.name === 'AUDIOBOOK_PIPELINE')
+    ) {
+      showToast('Preview unavailable while an audiobook is being prepared.');
       return;
     }
     previewBusy.current = true;
@@ -197,19 +231,29 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
         'neutral',
       );
       setPreviewStatus('');
+      if (unmounted.current) {
+        // The user already left — don't play over the next screen.
+        return;
+      }
       await soundRef.current?.unloadAsync().catch(() => {});
       const { sound } = await Audio.Sound.createAsync(
         { uri: `file://${segment.audioPath}` },
         { shouldPlay: true },
       );
+      if (unmounted.current) {
+        sound.unloadAsync().catch(() => {});
+        return;
+      }
       soundRef.current = sound;
     } catch (error) {
       setPreviewStatus('');
-      showToast(
-        `Preview failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+      if (!unmounted.current) {
+        showToast(
+          `Preview failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     } finally {
       previewBusy.current = false;
     }
