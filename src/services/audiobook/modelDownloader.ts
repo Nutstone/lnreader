@@ -20,6 +20,7 @@
  */
 
 import NativeFile from '@specs/NativeFile';
+import { downloadFile } from '@plugins/helpers/fetch';
 import type { TTSPrecision, VoiceClip } from './types';
 
 const BUNDLE_REPO_BASE =
@@ -189,7 +190,12 @@ export class ModelDownloader {
       NativeFile.unlink(partPath);
     }
     try {
-      await NativeFile.downloadFile(url, partPath, 'GET', {});
+      // Use the app's shared wrapper — it passes the TurboModule's
+      // full 5-argument signature. The new-architecture bridge
+      // enforces exact arity at runtime (calling with 4 args throws
+      // "expected argument count: 5" on device), which neither jest
+      // mocks nor Node harnesses catch.
+      await downloadFile(url, partPath);
     } catch (error) {
       // Never leave a truncated .part behind; the next attempt would
       // delete it anyway, but a clean failure keeps cache dirs tidy.

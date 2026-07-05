@@ -446,6 +446,11 @@ jest.mock('@utils/fetch/fetch', () => ({
   }),
 }));
 
+// Pulled in via the shared downloadFile helper (User-Agent lookup).
+jest.mock('react-native-device-info', () => ({
+  getUserAgentSync: jest.fn(() => 'LNReader-jest'),
+}));
+
 jest.mock('@utils/mmkv/mmkv', () => ({
   getMMKVObject: jest.fn(() => ({
     llmProvider: 'gemini',
