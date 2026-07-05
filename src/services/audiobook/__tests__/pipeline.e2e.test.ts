@@ -668,7 +668,12 @@ describe('audiobook pipeline end-to-end', () => {
     expect(mockLlmRequests.length).toBe(before);
     expect(mockFs.has('/data/Audiobook/42/glossary.json')).toBe(false);
     expect(mockFs.has('/data/Audiobook/42/annotations/9.json')).toBe(false);
-    expect(mockFs.has('/data/Audiobook/42/voice-map.json')).toBe(false);
+    // A narrator-only voice map IS persisted so the cast editor can
+    // tune the narrator for keyless users.
+    const voiceMap = JSON.parse(
+      mockFs.get('/data/Audiobook/42/voice-map.json')!.data,
+    );
+    expect(Object.keys(voiceMap.mappings)).toEqual(['narrator']);
   });
 
   it('streams playable WAV segments through the real engine and reuses the audio cache', async () => {

@@ -174,6 +174,23 @@ describe('VoiceAssigner', () => {
       expect(voiceMap.mappings.Sorceress).toEqual(original);
     });
 
+    it('speed changes keep the voice/pin and follow aliases', () => {
+      const assigner = new VoiceAssigner({ mainCharacterEmotionalSlots: 1 });
+      const glossary = makeGlossary([
+        makeCharacter({ name: 'Hero', importance: 90, aliases: ['The One'] }),
+      ]);
+      let voiceMap = assigner.buildVoiceMap(glossary);
+      const voiceBefore = voiceMap.mappings.Hero;
+
+      voiceMap = assigner.setVoiceSpeed(voiceMap, 'Hero', 0.85, glossary);
+      expect(voiceMap.mappings.Hero).toEqual({ ...voiceBefore, speed: 0.85 });
+      expect(voiceMap.mappings['The One']).toEqual(voiceMap.mappings.Hero);
+
+      // Narrator speed works without any glossary characters.
+      voiceMap = assigner.setVoiceSpeed(voiceMap, 'narrator', 0.9);
+      expect(voiceMap.mappings.narrator.speed).toBe(0.9);
+    });
+
     it('override pins; reset unpins and reassigns only that character', () => {
       const assigner = new VoiceAssigner({ mainCharacterEmotionalSlots: 0 });
       const glossary = makeGlossary([

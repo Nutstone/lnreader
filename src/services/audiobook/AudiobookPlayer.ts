@@ -428,7 +428,12 @@ export class AudiobookPlayer {
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: `file://${segment.audioPath}` },
-        { shouldPlay: this.state === 'playing' },
+        {
+          shouldPlay: this.state === 'playing',
+          // Per-voice speed from the cast editor, pitch-corrected.
+          rate: segment.speed ?? 1,
+          shouldCorrectPitch: true,
+        },
       );
       this.sound = sound;
 

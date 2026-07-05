@@ -237,14 +237,21 @@ export class AudiobookPipeline {
     annotation: ChapterAnnotation,
     onSetupProgress?: (progress: TTSSetupProgress) => void,
   ): AsyncGenerator<AudioSegment> {
-    const voiceMap =
-      (await this.getVoiceMap()) ??
-      this.assigner.buildVoiceMap({
+    let voiceMap = await this.getVoiceMap();
+    if (!voiceMap) {
+      // Persist a narrator-only map so the cast editor can list and
+      // tune the narrator (voice, speed) for keyless users. Unlike
+      // annotations, this never masks later LLM work — processNovel
+      // extends an existing map without touching the narrator.
+      voiceMap = this.assigner.buildVoiceMap({
         novelId: this.config.novelId,
         characters: [],
         narratorGender: 'male',
         createdAt: new Date().toISOString(),
       });
+      await this.ensureDir(this.novelDir);
+      await this.writeJSON(`${this.novelDir}/voice-map.json`, voiceMap);
+    }
 
     await this.renderer.initialize(onSetupProgress);
     await this.renderer.prefetchForChapter(

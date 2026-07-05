@@ -184,12 +184,15 @@ export type VoiceAssignment =
       /** Set by a manual pick in the cast editor; survives auto
        * reassignment ("reset to auto" clears it). */
       pinned?: boolean;
+      /** Playback rate multiplier (pitch-corrected), default 1. */
+      speed?: number;
     }
   | {
       kind: 'donation';
       voiceId: string;
       label: string;
       pinned?: boolean;
+      speed?: number;
     };
 
 export interface VoiceMap {
@@ -212,6 +215,10 @@ export interface AudioSegment {
   durationMs: number;
   speaker: string;
   text: string;
+  /** Playback rate from the speaker's voice assignment, default 1.
+   * Applied at playback (pitch-corrected) so cached audio is
+   * speed-agnostic. */
+  speed?: number;
 }
 
 // ── Progress Callback ───────────────────────────────────────────

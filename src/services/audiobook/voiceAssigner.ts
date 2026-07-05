@@ -266,6 +266,34 @@ export class VoiceAssigner {
     return this.extendVoiceMap({ ...voiceMap, mappings }, glossary);
   }
 
+  /**
+   * Adjusts a voice's playback speed without re-pinning or changing
+   * the voice itself. Aliases follow the primary name.
+   */
+  setVoiceSpeed(
+    voiceMap: VoiceMap,
+    characterName: string,
+    speed: number,
+    glossary?: CharacterGlossary,
+  ): VoiceMap {
+    const current = voiceMap.mappings[characterName];
+    if (!current) {
+      return voiceMap;
+    }
+    const updated: VoiceAssignment = { ...current, speed };
+    const mappings = { ...voiceMap.mappings, [characterName]: updated };
+    for (const alias of this.aliasesOf(characterName, glossary)) {
+      if (mappings[alias]) {
+        mappings[alias] = updated;
+      }
+    }
+    return {
+      ...voiceMap,
+      mappings,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   private aliasesOf(
     characterName: string,
     glossary?: CharacterGlossary,

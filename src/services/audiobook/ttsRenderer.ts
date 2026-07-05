@@ -163,6 +163,7 @@ export class TTSRenderer {
         durationMs: 0,
         speaker: '',
         text,
+        speed: assignment.speed,
       };
     }
 
@@ -183,6 +184,7 @@ export class TTSRenderer {
       durationMs: (processed.length / sampleRate) * 1000,
       speaker: '',
       text,
+      speed: assignment.speed,
     };
   }
 
