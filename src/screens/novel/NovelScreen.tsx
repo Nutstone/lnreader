@@ -155,6 +155,16 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
     });
   }, [novel]);
 
+  const openVoiceCast = useCallback(() => {
+    if (!novel) {
+      return;
+    }
+    navigation.navigate('VoiceCast', {
+      novelId: novel.id,
+      novelName: novel.name,
+    });
+  }, [navigation, novel]);
+
   const [jumpToChapterModal, showJumpToChapterModal] = useState(false);
   const {
     value: dlChapterModalVisible,
@@ -327,6 +337,7 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
               deleteChapters={deleteChs}
               downloadChapters={downloadChs}
               prepareAudiobook={prepareAudiobook}
+              openVoiceCast={openVoiceCast}
               showEditInfoModal={showEditInfoModal}
               setCustomNovelCover={setCustomNovelCover}
               downloadCustomChapterModal={openDlChapterModal}

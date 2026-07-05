@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 // Screens
 import Novel from '../screens/novel/NovelScreen';
 import Reader from '../screens/reader/ReaderScreen';
+import VoiceCast from '../screens/audiobook/VoiceCastScreen';
 
 import {
   ChapterScreenProps,
@@ -32,6 +33,7 @@ const ReaderStack = ({ route }) => {
       <Stack.Navigator screenOptions={stackNavigatorConfig}>
         <Stack.Screen name="Novel" component={Novel} />
         <Stack.Screen name="Chapter" component={Reader} />
+        <Stack.Screen name="VoiceCast" component={VoiceCast} />
       </Stack.Navigator>
     </NovelContextProvider>
   );

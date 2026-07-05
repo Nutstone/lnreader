@@ -76,6 +76,7 @@ const NovelAppbar = ({
   isLocal,
   downloadChapters,
   prepareAudiobook,
+  openVoiceCast,
   deleteChapters,
   showEditInfoModal,
   downloadCustomChapterModal,
@@ -90,6 +91,7 @@ const NovelAppbar = ({
   isLocal: boolean | undefined;
   downloadChapters: (amount: number | 'all' | 'unread') => void;
   prepareAudiobook: (amount: number) => void;
+  openVoiceCast: () => void;
   deleteChapters: () => void;
   showEditInfoModal: React.Dispatch<React.SetStateAction<boolean>>;
   downloadCustomChapterModal: () => void;
@@ -191,8 +193,12 @@ const NovelAppbar = ({
         label: getString('novelScreen.edit.cover'),
         onPress: () => setCustomNovelCover(),
       },
+      {
+        label: 'Audiobook voice cast',
+        onPress: () => openVoiceCast(),
+      },
     ],
-    [showEditInfoModal, setCustomNovelCover],
+    [showEditInfoModal, setCustomNovelCover, openVoiceCast],
   );
 
   const openDlMenu = useCallback(() => showDownloadMenu(true), []);
