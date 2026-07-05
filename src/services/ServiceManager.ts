@@ -17,6 +17,7 @@ import { migrateNovel, MigrateNovelData } from './migrate/migrateNovel';
 import { downloadChapter } from './download/downloadChapter';
 import { processAudiobook } from './audiobook/processAudiobook';
 import { askForPostNotificationsPermission } from '@utils/askForPostNoftificationsPermission';
+import { showToast } from '@utils/showToast';
 
 type taskNames =
   | 'IMPORT_EPUB'
@@ -126,7 +127,16 @@ export default class ServiceManager {
   async start() {
     if (!this.isRunning) {
       const notificationsAllowed = await askForPostNotificationsPermission();
-      if (!notificationsAllowed) return;
+      if (!notificationsAllowed) {
+        // Android 13+ answers 'denied' instantly (no dialog) once the
+        // user has refused twice. The foreground service still runs
+        // without the permission — its notification is just hidden —
+        // so warn instead of silently dropping the queued tasks,
+        // which made Local Backup/Restore look like dead buttons.
+        showToast(
+          'Notifications are off — task progress will be hidden. Enable notifications for LNReader in Android settings to see it.',
+        );
+      }
       BackgroundService.start(ServiceManager.launch, {
         taskName: 'app_services',
         taskTitle: 'App Service',
@@ -458,6 +468,12 @@ export default class ServiceManager {
       }));
 
       setMMKVObject(this.STORE_KEY, currentTasks.concat(newTasks));
+    }
+    // Start (or restart) the runner even when every task was deduped
+    // as already queued — the queue survives in MMKV, so after a
+    // start() that bailed (e.g. permission prompt dismissed) the
+    // stale entry would otherwise block every future click.
+    if (this.getTaskList().length) {
       this.start();
     }
   }
