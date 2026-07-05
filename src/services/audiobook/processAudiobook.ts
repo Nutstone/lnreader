@@ -10,6 +10,8 @@ import { getMMKVObject } from '@utils/mmkv/mmkv';
 import {
   AudiobookSettings,
   AUDIOBOOK_SETTINGS,
+  isLLMConfigured,
+  resolveLLMConfig,
   sanitizeTTSPrecision,
 } from '@hooks/persisted/useAudiobookSettings';
 
@@ -33,14 +35,17 @@ export const processAudiobook = async (
     }));
 
     const settings = getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS);
+    const llm = resolveLLMConfig(settings);
+    if (!isLLMConfigured(llm)) {
+      throw new Error(
+        llm.provider === 'ollama'
+          ? 'Set the Ollama base URL in Audiobook Settings first.'
+          : `Set your ${llm.provider} API key in Audiobook Settings first.`,
+      );
+    }
 
     const config: AudiobookConfig = {
-      llm: {
-        provider: settings?.llmProvider ?? 'gemini',
-        apiKey: settings?.apiKey || undefined,
-        baseUrl: settings?.baseUrl || undefined,
-        model: settings?.model || undefined,
-      },
+      llm,
       tts: {
         precision: sanitizeTTSPrecision(settings?.ttsPrecision),
         lookaheadSegments: settings?.lookaheadSegments ?? 4,

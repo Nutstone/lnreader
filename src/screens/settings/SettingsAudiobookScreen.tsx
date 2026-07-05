@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
 
 import { Appbar, List, SafeAreaView } from '@components';
 import { useTheme, useAudiobookSettings } from '@hooks/persisted';
+import { providerSettingsFor } from '@hooks/persisted/useAudiobookSettings';
+import { DEFAULT_MODELS } from '@services/audiobook/llmAnnotator';
 import { getString } from '@strings/translations';
 import { AudiobookSettingsScreenProps } from '@navigators/types';
 
@@ -23,25 +25,35 @@ const AudiobookSettingsScreen = ({
 }: AudiobookSettingsScreenProps) => {
   const theme = useTheme();
   const {
+    settings,
     llmProvider,
-    apiKey,
-    baseUrl,
-    model,
     ttsPrecision,
     lookaheadSegments,
     mainCharacterEmotionalSlots,
     setAudiobookSettings,
+    setProviderSettings,
   } = useAudiobookSettings();
 
-  const [apiKeyInput, setApiKeyInput] = useState(apiKey);
-  const [baseUrlInput, setBaseUrlInput] = useState(baseUrl);
-  const [modelInput, setModelInput] = useState(model);
+  const active = providerSettingsFor(settings, llmProvider);
+  const [apiKeyInput, setApiKeyInput] = useState(active.apiKey);
+  const [baseUrlInput, setBaseUrlInput] = useState(active.baseUrl);
+  const [modelInput, setModelInput] = useState(active.model);
   const [lookaheadInput, setLookaheadInput] = useState(
     String(lookaheadSegments),
   );
   const [slotsInput, setSlotsInput] = useState(
     String(mainCharacterEmotionalSlots),
   );
+
+  // Each provider keeps its own key/model/URL — swap the inputs when
+  // the provider chip changes.
+  useEffect(() => {
+    const stored = providerSettingsFor(settings, llmProvider);
+    setApiKeyInput(stored.apiKey);
+    setBaseUrlInput(stored.baseUrl);
+    setModelInput(stored.model);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [llmProvider]);
 
   return (
     <SafeAreaView excludeTop>
@@ -88,23 +100,36 @@ const AudiobookSettingsScreen = ({
           </View>
         </List.Section>
 
-        <List.Section>
-          <List.SubHeader theme={theme}>
-            {getString('audiobookSettings.apiKey')}
-          </List.SubHeader>
-          <View style={styles.inputContainer}>
-            <TextInput
-              mode="outlined"
-              value={apiKeyInput}
-              onChangeText={setApiKeyInput}
-              onBlur={() => setAudiobookSettings({ apiKey: apiKeyInput })}
-              secureTextEntry
-              theme={{ colors: { ...theme } }}
-              style={styles.textInput}
-              dense
-            />
-          </View>
-        </List.Section>
+        {llmProvider !== 'ollama' ? (
+          <List.Section>
+            <List.SubHeader theme={theme}>
+              {getString('audiobookSettings.apiKey')}
+            </List.SubHeader>
+            <View style={styles.inputContainer}>
+              <TextInput
+                mode="outlined"
+                value={apiKeyInput}
+                onChangeText={setApiKeyInput}
+                onBlur={() =>
+                  setProviderSettings(llmProvider, { apiKey: apiKeyInput })
+                }
+                secureTextEntry
+                theme={{ colors: { ...theme } }}
+                style={styles.textInput}
+                dense
+              />
+              {llmProvider === 'gemini' ? (
+                <Text
+                  style={[styles.hint, { color: theme.onSurfaceVariant }]}
+                  variant="bodySmall"
+                >
+                  Free-tier keys from aistudio.google.com work — no billing
+                  account needed.
+                </Text>
+              ) : null}
+            </View>
+          </List.Section>
+        ) : null}
 
         {llmProvider === 'ollama' ? (
           <List.Section>
@@ -116,8 +141,10 @@ const AudiobookSettingsScreen = ({
                 mode="outlined"
                 value={baseUrlInput}
                 onChangeText={setBaseUrlInput}
-                onBlur={() => setAudiobookSettings({ baseUrl: baseUrlInput })}
-                placeholder="http://localhost:11434"
+                onBlur={() =>
+                  setProviderSettings(llmProvider, { baseUrl: baseUrlInput })
+                }
+                placeholder="http://192.168.1.10:11434"
                 theme={{ colors: { ...theme } }}
                 style={styles.textInput}
                 dense
@@ -135,8 +162,10 @@ const AudiobookSettingsScreen = ({
               mode="outlined"
               value={modelInput}
               onChangeText={setModelInput}
-              onBlur={() => setAudiobookSettings({ model: modelInput })}
-              placeholder="Optional model override"
+              onBlur={() =>
+                setProviderSettings(llmProvider, { model: modelInput })
+              }
+              placeholder={DEFAULT_MODELS[llmProvider]}
               theme={{ colors: { ...theme } }}
               style={styles.textInput}
               dense
@@ -245,6 +274,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   flex: { flex: 1 },
+  hint: {
+    marginTop: 4,
+  },
   inputContainer: {
     paddingHorizontal: 16,
   },

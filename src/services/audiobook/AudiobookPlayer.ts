@@ -3,6 +3,8 @@ import { getMMKVObject } from '@utils/mmkv/mmkv';
 import {
   AUDIOBOOK_SETTINGS,
   AudiobookSettings,
+  isLLMConfigured,
+  resolveLLMConfig,
   sanitizeTTSPrecision,
 } from '@hooks/persisted/useAudiobookSettings';
 import { AudiobookPipeline } from './pipeline';
@@ -102,9 +104,12 @@ export class AudiobookPlayer {
     }
 
     const settings = getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS);
-    if (!settings?.apiKey) {
+    const llm = resolveLLMConfig(settings);
+    if (!isLLMConfigured(llm)) {
       throw new Error(
-        'Audiobook not configured. Please set up your LLM API key in Settings.',
+        llm.provider === 'ollama'
+          ? 'Audiobook not configured. Set the Ollama base URL in Settings.'
+          : `Audiobook not configured. Set your ${llm.provider} API key in Settings.`,
       );
     }
 
@@ -115,16 +120,12 @@ export class AudiobookPlayer {
     }
 
     const config: AudiobookConfig = {
-      llm: {
-        provider: settings.llmProvider || 'anthropic',
-        apiKey: settings.apiKey,
-        baseUrl: settings.baseUrl || undefined,
-        model: settings.model || undefined,
-      },
+      llm,
       tts: {
-        precision: sanitizeTTSPrecision(settings.ttsPrecision),
-        lookaheadSegments: settings.lookaheadSegments ?? 4,
-        mainCharacterEmotionalSlots: settings.mainCharacterEmotionalSlots ?? 10,
+        precision: sanitizeTTSPrecision(settings?.ttsPrecision),
+        lookaheadSegments: settings?.lookaheadSegments ?? 4,
+        mainCharacterEmotionalSlots:
+          settings?.mainCharacterEmotionalSlots ?? 10,
       },
       novelId,
     };

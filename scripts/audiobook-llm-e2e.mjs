@@ -154,6 +154,7 @@ const fence = obj => '```json\n' + JSON.stringify(obj) + '\n```';
 // ── Mock provider server ────────────────────────────────────────
 
 const requests = [];
+let flakyAttempts = 0;
 const server = http.createServer((req, res) => {
   let body = '';
   req.on('data', chunk => (body += chunk));
@@ -183,6 +184,19 @@ const server = http.createServer((req, res) => {
         content: [{ type: 'text', text: 'Sorry, I cannot do that.' }],
         stop_reason: 'end_turn',
       });
+    }
+    // First attempt gets rate-limited, like Gemini's free tier under
+    // load; the annotator must honor Retry-After and try again.
+    if (apiKey === 'flaky-key' && ++flakyAttempts === 1) {
+      res.writeHead(429, {
+        'Content-Type': 'application/json',
+        'Retry-After': '1',
+      });
+      return res.end(
+        JSON.stringify({
+          error: { type: 'rate_limit_error', message: 'rate limited' },
+        }),
+      );
     }
 
     const isGlossary = JSON.stringify(record.body).includes(
@@ -298,6 +312,24 @@ console.log('\n── Gemini path (mock) ──');
     'system prompt in system_instruction',
   );
   check(glossary.characters.length === 2, 'glossary parsed');
+}
+
+console.log('\n── Rate-limit retry (mock) ──');
+{
+  const flaky = new LLMAnnotator({
+    provider: 'anthropic',
+    apiKey: 'flaky-key',
+  });
+  const before = requests.length;
+  const t0 = Date.now();
+  const glossary = await flaky.buildGlossary('n', [CHAPTER]);
+  const elapsedMs = Date.now() - t0;
+  check(glossary.characters.length === 2, '429 retried to success');
+  check(
+    requests.length - before === 2,
+    `retry made exactly one extra request (${requests.length - before})`,
+  );
+  check(elapsedMs >= 900, `honored Retry-After (waited ${elapsedMs}ms)`);
 }
 
 console.log('\n── Failure paths (mock) ──');

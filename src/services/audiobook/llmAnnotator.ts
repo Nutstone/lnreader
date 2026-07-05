@@ -10,13 +10,22 @@ import {
 import { buildGlossaryPrompt } from './prompts/glossaryBuilder';
 import { buildAnnotationPrompt } from './prompts/chapterAnnotator';
 
-const DEFAULT_MODELS: Record<LLMConfig['provider'], string> = {
+export const DEFAULT_MODELS: Record<LLMConfig['provider'], string> = {
   anthropic: 'claude-sonnet-5',
   gemini: 'gemini-2.5-flash',
   ollama: 'llama3.1:8b',
 };
 
 const LLM_TIMEOUT = 120000;
+
+/**
+ * Rate limits (429 — e.g. Gemini's free tier allows ~10 requests/min)
+ * and transient provider outages (5xx / Anthropic's 529) are retried
+ * with exponential backoff, honoring Retry-After when it's sane.
+ */
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504, 529]);
+const MAX_LLM_RETRIES = 4;
+const MAX_RETRY_WAIT_MS = 60_000;
 
 // Annotation output must re-emit the entire chunk text inside JSON, so
 // chunks are sized to keep each response well under the output-token cap.
@@ -103,6 +112,31 @@ export class LLMAnnotator {
     return this.config.apiKey;
   }
 
+  private async postWithRetry(
+    url: string,
+    init: Parameters<typeof fetchTimeout>[1],
+    timeout: number,
+  ): Promise<Response> {
+    let backoffMs = 2000;
+    for (let attempt = 0; ; attempt++) {
+      const response = await fetchTimeout(url, init, timeout);
+      if (
+        response.ok ||
+        attempt >= MAX_LLM_RETRIES ||
+        !RETRYABLE_STATUS.has(response.status)
+      ) {
+        return response;
+      }
+      const retryAfter = Number(response.headers?.get?.('retry-after'));
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.min(retryAfter * 1000, MAX_RETRY_WAIT_MS)
+          : backoffMs;
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      backoffMs = Math.min(backoffMs * 2, MAX_RETRY_WAIT_MS / 2);
+    }
+  }
+
   private async assertOk(response: Response, provider: string): Promise<void> {
     if (response.ok) {
       return;
@@ -121,7 +155,7 @@ export class LLMAnnotator {
 
   private async callAnthropic(system: string, user: string): Promise<string> {
     const model = this.config.model || DEFAULT_MODELS.anthropic;
-    const response = await fetchTimeout(
+    const response = await this.postWithRetry(
       'https://api.anthropic.com/v1/messages',
       {
         method: 'POST',
@@ -162,7 +196,7 @@ export class LLMAnnotator {
       this.config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
     const url = `${baseUrl}/models/${model}:generateContent`;
 
-    const response = await fetchTimeout(
+    const response = await this.postWithRetry(
       url,
       {
         method: 'POST',
@@ -201,7 +235,7 @@ export class LLMAnnotator {
     const baseUrl = this.config.baseUrl || 'http://localhost:11434';
     const url = `${baseUrl}/api/chat`;
 
-    const response = await fetchTimeout(
+    const response = await this.postWithRetry(
       url,
       {
         method: 'POST',
