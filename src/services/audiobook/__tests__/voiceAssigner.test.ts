@@ -174,7 +174,7 @@ describe('VoiceAssigner', () => {
       expect(voiceMap.mappings.Sorceress).toEqual(original);
     });
 
-    it('speed changes keep the voice/pin and follow aliases', () => {
+    it('tuning changes keep the voice/pin and follow aliases', () => {
       const assigner = new VoiceAssigner({ mainCharacterEmotionalSlots: 1 });
       const glossary = makeGlossary([
         makeCharacter({ name: 'Hero', importance: 90, aliases: ['The One'] }),
@@ -182,12 +182,31 @@ describe('VoiceAssigner', () => {
       let voiceMap = assigner.buildVoiceMap(glossary);
       const voiceBefore = voiceMap.mappings.Hero;
 
-      voiceMap = assigner.setVoiceSpeed(voiceMap, 'Hero', 0.85, glossary);
+      voiceMap = assigner.setVoiceTuning(
+        voiceMap,
+        'Hero',
+        { speed: 0.85 },
+        glossary,
+      );
       expect(voiceMap.mappings.Hero).toEqual({ ...voiceBefore, speed: 0.85 });
       expect(voiceMap.mappings['The One']).toEqual(voiceMap.mappings.Hero);
 
-      // Narrator speed works without any glossary characters.
-      voiceMap = assigner.setVoiceSpeed(voiceMap, 'narrator', 0.9);
+      // Later pitch/volume tweaks merge without clobbering speed.
+      voiceMap = assigner.setVoiceTuning(
+        voiceMap,
+        'Hero',
+        { pitch: 1.1, volume: 0.8 },
+        glossary,
+      );
+      expect(voiceMap.mappings.Hero).toEqual({
+        ...voiceBefore,
+        speed: 0.85,
+        pitch: 1.1,
+        volume: 0.8,
+      });
+
+      // Narrator tuning works without any glossary characters.
+      voiceMap = assigner.setVoiceTuning(voiceMap, 'narrator', { speed: 0.9 });
       expect(voiceMap.mappings.narrator.speed).toBe(0.9);
     });
 

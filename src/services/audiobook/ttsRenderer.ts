@@ -9,6 +9,7 @@ import {
   VoiceSpec,
 } from './types';
 import { PocketTTSAdapter, voiceKey } from './pocketTTSAdapter';
+import { resampleLinear } from './pocketTTS/binaryFormats';
 import { ModelDownloader } from './modelDownloader';
 import { AudioCache } from './audioCache';
 import { postProcess } from './audioPostProcessor';
@@ -153,8 +154,18 @@ export class TTSRenderer {
     emotion: Emotion,
   ): Promise<AudioSegment> {
     const spec = this.resolveVoiceSpec(assignment, emotion);
-    const cacheKey = AudioCache.keyFor(text, voiceKey(spec));
+    // Pitch is baked into the rendered audio (resample), so it is
+    // part of the cache identity; speed/volume are playback-time and
+    // deliberately are not.
+    const pitch =
+      assignment.pitch && assignment.pitch !== 1 ? assignment.pitch : 1;
+    const cacheVoice =
+      pitch !== 1 ? `${voiceKey(spec)}#p${pitch.toFixed(2)}` : voiceKey(spec);
+    const cacheKey = AudioCache.keyFor(text, cacheVoice);
     const audioPath = this.audioCache.pathFor(cacheKey);
+    // Rendered audio is 1/pitch long; playing at speed/pitch with
+    // pitch correction restores natural pace at the shifted pitch.
+    const playbackRate = (assignment.speed ?? 1) / pitch;
 
     if (this.audioCache.has(cacheKey)) {
       return {
@@ -163,7 +174,8 @@ export class TTSRenderer {
         durationMs: 0,
         speaker: '',
         text,
-        speed: assignment.speed,
+        speed: playbackRate,
+        volume: assignment.volume,
       };
     }
 
@@ -173,7 +185,10 @@ export class TTSRenderer {
       text,
       voiceState,
     );
-    const processed = postProcess(samples);
+    let processed = postProcess(samples);
+    if (pitch !== 1) {
+      processed = resampleLinear(processed, sampleRate, sampleRate / pitch);
+    }
 
     const wavBytes = encodeWav(processed, sampleRate);
     await this.audioCache.set(cacheKey, arrayBufferToBase64(wavBytes));
@@ -184,7 +199,8 @@ export class TTSRenderer {
       durationMs: (processed.length / sampleRate) * 1000,
       speaker: '',
       text,
-      speed: assignment.speed,
+      speed: playbackRate,
+      volume: assignment.volume,
     };
   }
 

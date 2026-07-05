@@ -176,24 +176,37 @@ export type VoiceSpec =
  * speaker (full emotional range) or a fixed donation voice
  * (single emotion).
  */
-export type VoiceAssignment =
-  | {
-      kind: 'emotional';
-      speakerId: string;
-      label: string;
-      /** Set by a manual pick in the cast editor; survives auto
-       * reassignment ("reset to auto" clears it). */
-      pinned?: boolean;
-      /** Playback rate multiplier (pitch-corrected), default 1. */
-      speed?: number;
-    }
-  | {
-      kind: 'donation';
-      voiceId: string;
-      label: string;
-      pinned?: boolean;
-      speed?: number;
-    };
+/** Per-voice tuning set in the cast editor. */
+export interface VoiceTuning {
+  /** Playback rate multiplier (pitch-corrected), default 1. */
+  speed?: number;
+  /**
+   * Pitch factor, default 1 (0.85–1.20 ≈ ∓3 semitones). Baked into
+   * the rendered audio (resample) and compensated at playback so the
+   * duration stays natural — effectively creates new voice variants.
+   */
+  pitch?: number;
+  /** Volume 0–1 (attenuation only — 1 is already full scale). */
+  volume?: number;
+}
+
+export type VoiceAssignment = VoiceTuning &
+  (
+    | {
+        kind: 'emotional';
+        speakerId: string;
+        label: string;
+        /** Set by a manual pick in the cast editor; survives auto
+         * reassignment ("reset to auto" clears it). */
+        pinned?: boolean;
+      }
+    | {
+        kind: 'donation';
+        voiceId: string;
+        label: string;
+        pinned?: boolean;
+      }
+  );
 
 export interface VoiceMap {
   novelId: string;
@@ -215,10 +228,12 @@ export interface AudioSegment {
   durationMs: number;
   speaker: string;
   text: string;
-  /** Playback rate from the speaker's voice assignment, default 1.
-   * Applied at playback (pitch-corrected) so cached audio is
-   * speed-agnostic. */
+  /** Playback rate from the speaker's voice tuning (speed and pitch
+   * compensation combined), default 1. Applied at playback with
+   * pitch correction. */
   speed?: number;
+  /** Playback volume from the voice tuning, default 1. */
+  volume?: number;
 }
 
 // ── Progress Callback ───────────────────────────────────────────

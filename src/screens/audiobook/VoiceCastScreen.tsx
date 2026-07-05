@@ -44,9 +44,47 @@ import type {
   CharacterGlossary,
   VoiceAssignment,
   VoiceMap,
+  VoiceTuning,
 } from '@services/audiobook/types';
 
 const PREVIEW_LINE = 'We march at dawn, and the stars will guide us home.';
+
+/** Tuning knobs shown per voice. Speed is pitch-corrected playback
+ * rate; pitch re-renders the voice higher/lower (a new-sounding
+ * voice); volume is attenuation for voices recorded too loud. */
+const TUNERS: {
+  key: keyof VoiceTuning;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  format: (value: number) => string;
+}[] = [
+  {
+    key: 'speed',
+    label: 'Speed',
+    min: 0.6,
+    max: 1.6,
+    step: 0.05,
+    format: v => `${v.toFixed(2)}×`,
+  },
+  {
+    key: 'pitch',
+    label: 'Pitch',
+    min: 0.85,
+    max: 1.2,
+    step: 0.05,
+    format: v => `${v.toFixed(2)}×`,
+  },
+  {
+    key: 'volume',
+    label: 'Volume',
+    min: 0.4,
+    max: 1,
+    step: 0.1,
+    format: v => `${Math.round(v * 100)}%`,
+  },
+];
 
 interface CastRow {
   name: string;
@@ -204,14 +242,22 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
     [assigner, glossary, novelId, persistVoiceMap, voiceMap],
   );
 
-  const setSpeed = useCallback(
-    (characterName: string, speed: number) => {
+  const setTuning = useCallback(
+    (characterName: string, patch: VoiceTuning) => {
       if (!voiceMap) {
         return;
       }
-      const clamped = Math.round(Math.min(1.6, Math.max(0.6, speed)) * 20) / 20;
+      const clamped: VoiceTuning = {};
+      for (const tuner of TUNERS) {
+        const value = patch[tuner.key];
+        if (value !== undefined) {
+          clamped[tuner.key] =
+            Math.round(Math.min(tuner.max, Math.max(tuner.min, value)) * 100) /
+            100;
+        }
+      }
       persistVoiceMap(
-        assigner.setVoiceSpeed(
+        assigner.setVoiceTuning(
           voiceMap,
           characterName,
           clamped,
@@ -222,75 +268,77 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
     [assigner, glossary, persistVoiceMap, voiceMap],
   );
 
-  const previewVoice = useCallback(
-    async (assignment: VoiceAssignment, speed: number = 1) => {
-      if (previewBusy.current) {
+  const previewVoice = useCallback(async (assignment: VoiceAssignment) => {
+    if (previewBusy.current) {
+      return;
+    }
+    // A running prepare task may already hold a full model instance;
+    // a second one here could OOM low-end devices.
+    if (
+      ServiceManager.manager
+        .getTaskList()
+        .some(t => t.task?.name === 'AUDIOBOOK_PIPELINE')
+    ) {
+      showToast('Preview unavailable while an audiobook is being prepared.');
+      return;
+    }
+    previewBusy.current = true;
+    try {
+      if (!rendererRef.current) {
+        const settings = getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS);
+        rendererRef.current = new TTSRenderer(
+          {
+            precision: sanitizeTTSPrecision(settings?.ttsPrecision),
+            lookaheadSegments: 1,
+            mainCharacterEmotionalSlots:
+              settings?.mainCharacterEmotionalSlots ?? 10,
+          },
+          AUDIOBOOK_CACHE_STORAGE,
+        );
+      }
+      // First preview may download the model — surface that.
+      await rendererRef.current.initialize(progress =>
+        setPreviewStatus(formatSetupProgress(progress)),
+      );
+      setPreviewStatus('Generating preview…');
+      const segment = await rendererRef.current.renderSegment(
+        PREVIEW_LINE,
+        assignment,
+        'neutral',
+      );
+      setPreviewStatus('');
+      if (unmounted.current) {
+        // The user already left — don't play over the next screen.
         return;
       }
-      // A running prepare task may already hold a full model instance;
-      // a second one here could OOM low-end devices.
-      if (
-        ServiceManager.manager
-          .getTaskList()
-          .some(t => t.task?.name === 'AUDIOBOOK_PIPELINE')
-      ) {
-        showToast('Preview unavailable while an audiobook is being prepared.');
+      await soundRef.current?.unloadAsync().catch(() => {});
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: `file://${segment.audioPath}` },
+        {
+          shouldPlay: true,
+          rate: segment.speed ?? 1,
+          shouldCorrectPitch: true,
+          volume: segment.volume ?? 1,
+        },
+      );
+      if (unmounted.current) {
+        sound.unloadAsync().catch(() => {});
         return;
       }
-      previewBusy.current = true;
-      try {
-        if (!rendererRef.current) {
-          const settings = getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS);
-          rendererRef.current = new TTSRenderer(
-            {
-              precision: sanitizeTTSPrecision(settings?.ttsPrecision),
-              lookaheadSegments: 1,
-              mainCharacterEmotionalSlots:
-                settings?.mainCharacterEmotionalSlots ?? 10,
-            },
-            AUDIOBOOK_CACHE_STORAGE,
-          );
-        }
-        // First preview may download the model — surface that.
-        await rendererRef.current.initialize(progress =>
-          setPreviewStatus(formatSetupProgress(progress)),
+      soundRef.current = sound;
+    } catch (error) {
+      setPreviewStatus('');
+      if (!unmounted.current) {
+        showToast(
+          `Preview failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         );
-        setPreviewStatus('Generating preview…');
-        const segment = await rendererRef.current.renderSegment(
-          PREVIEW_LINE,
-          assignment,
-          'neutral',
-        );
-        setPreviewStatus('');
-        if (unmounted.current) {
-          // The user already left — don't play over the next screen.
-          return;
-        }
-        await soundRef.current?.unloadAsync().catch(() => {});
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: `file://${segment.audioPath}` },
-          { shouldPlay: true, rate: speed, shouldCorrectPitch: true },
-        );
-        if (unmounted.current) {
-          sound.unloadAsync().catch(() => {});
-          return;
-        }
-        soundRef.current = sound;
-      } catch (error) {
-        setPreviewStatus('');
-        if (!unmounted.current) {
-          showToast(
-            `Preview failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        }
-      } finally {
-        previewBusy.current = false;
       }
-    },
-    [],
-  );
+    } finally {
+      previewBusy.current = false;
+    }
+  }, []);
 
   const pickerOptions = useMemo<VoiceAssignment[]>(
     () => [
@@ -389,42 +437,55 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
               {previewStatus}
             </Text>
           ) : null}
-          {editingRow?.assignment ? (
-            <View style={styles.speedRow}>
-              <Text style={{ color: theme.onSurface }}>Speed</Text>
-              <Pressable
-                style={styles.speedButton}
-                onPress={() =>
-                  editing &&
-                  setSpeed(editing, (editingRow.assignment?.speed ?? 1) - 0.05)
-                }
-              >
-                <Text style={[styles.speedGlyph, { color: theme.primary }]}>
-                  −
-                </Text>
-              </Pressable>
-              <Text style={{ color: theme.onSurface }}>
-                {(editingRow.assignment.speed ?? 1).toFixed(2)}×
-              </Text>
-              <Pressable
-                style={styles.speedButton}
-                onPress={() =>
-                  editing &&
-                  setSpeed(editing, (editingRow.assignment?.speed ?? 1) + 0.05)
-                }
-              >
-                <Text style={[styles.speedGlyph, { color: theme.primary }]}>
-                  +
-                </Text>
-              </Pressable>
-              <Text
-                variant="bodySmall"
-                style={{ color: theme.onSurfaceVariant }}
-              >
-                1.00 = as recorded
-              </Text>
-            </View>
-          ) : null}
+          {editingRow?.assignment
+            ? TUNERS.map(tuner => {
+                const current =
+                  editingRow.assignment?.[tuner.key] ??
+                  (tuner.key === 'volume' ? 1 : 1);
+                return (
+                  <View key={tuner.key} style={styles.speedRow}>
+                    <Text
+                      style={[styles.tunerLabel, { color: theme.onSurface }]}
+                    >
+                      {tuner.label}
+                    </Text>
+                    <Pressable
+                      style={styles.speedButton}
+                      onPress={() =>
+                        editing &&
+                        setTuning(editing, {
+                          [tuner.key]: current - tuner.step,
+                        })
+                      }
+                    >
+                      <Text
+                        style={[styles.speedGlyph, { color: theme.primary }]}
+                      >
+                        −
+                      </Text>
+                    </Pressable>
+                    <Text style={{ color: theme.onSurface }}>
+                      {tuner.format(current)}
+                    </Text>
+                    <Pressable
+                      style={styles.speedButton}
+                      onPress={() =>
+                        editing &&
+                        setTuning(editing, {
+                          [tuner.key]: current + tuner.step,
+                        })
+                      }
+                    >
+                      <Text
+                        style={[styles.speedGlyph, { color: theme.primary }]}
+                      >
+                        +
+                      </Text>
+                    </Pressable>
+                  </View>
+                );
+              })
+            : null}
           <FlatList
             data={pickerOptions}
             keyExtractor={keyOf}
@@ -451,7 +512,14 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
                   <Pressable
                     style={styles.previewButton}
                     onPress={() =>
-                      previewVoice(item, editingRow?.assignment?.speed ?? 1)
+                      // Preview the candidate voice with the
+                      // character's current tuning applied.
+                      previewVoice({
+                        ...item,
+                        speed: editingRow?.assignment?.speed,
+                        pitch: editingRow?.assignment?.pitch,
+                        volume: editingRow?.assignment?.volume,
+                      })
                     }
                   >
                     <Text style={{ color: theme.primary }}>▶</Text>
@@ -528,7 +596,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 4,
-    paddingVertical: 8,
+    paddingVertical: 4,
+  },
+  tunerLabel: {
+    width: 64,
   },
   rowText: {
     flex: 1,

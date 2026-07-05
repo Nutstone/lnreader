@@ -430,9 +430,12 @@ export class AudiobookPlayer {
         { uri: `file://${segment.audioPath}` },
         {
           shouldPlay: this.state === 'playing',
-          // Per-voice speed from the cast editor, pitch-corrected.
+          // Per-voice tuning from the cast editor: rate combines the
+          // chosen speed with pitch compensation; pitch itself is
+          // baked into the rendered file.
           rate: segment.speed ?? 1,
           shouldCorrectPitch: true,
+          volume: segment.volume ?? 1,
         },
       );
       this.sound = sound;

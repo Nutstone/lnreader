@@ -19,6 +19,7 @@ import type {
   EmotionalSpeaker,
   VoiceAssignment,
   VoiceMap,
+  VoiceTuning,
 } from './types';
 import {
   DEFAULT_NARRATOR_SPEAKER_ID,
@@ -267,20 +268,20 @@ export class VoiceAssigner {
   }
 
   /**
-   * Adjusts a voice's playback speed without re-pinning or changing
-   * the voice itself. Aliases follow the primary name.
+   * Adjusts a voice's tuning (speed/pitch/volume) without re-pinning
+   * or changing the voice itself. Aliases follow the primary name.
    */
-  setVoiceSpeed(
+  setVoiceTuning(
     voiceMap: VoiceMap,
     characterName: string,
-    speed: number,
+    tuning: VoiceTuning,
     glossary?: CharacterGlossary,
   ): VoiceMap {
     const current = voiceMap.mappings[characterName];
     if (!current) {
       return voiceMap;
     }
-    const updated: VoiceAssignment = { ...current, speed };
+    const updated: VoiceAssignment = { ...current, ...tuning };
     const mappings = { ...voiceMap.mappings, [characterName]: updated };
     for (const alias of this.aliasesOf(characterName, glossary)) {
       if (mappings[alias]) {
