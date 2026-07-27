@@ -3,6 +3,7 @@ const mockUseHistory = jest.fn(() => ({
   history: [],
   error: undefined,
   removeChapterFromHistory: jest.fn(),
+  removeNovelFromHistory: jest.fn(),
   clearAllHistory: jest.fn(),
 }));
 

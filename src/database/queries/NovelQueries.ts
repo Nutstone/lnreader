@@ -5,8 +5,8 @@ import { fetchNovel } from '@services/plugin/fetch';
 import { insertChapters } from './ChapterQueries';
 
 import { showToast } from '@utils/showToast';
-import { getString } from '@strings/translations';
-import { BackupNovel, NovelInfo } from '../types';
+import { getString } from '@i18n/translations';
+import { BackupNovel, DBNovelInfo, NovelInfo } from '../types';
 import { SourceNovel } from '@plugins/types';
 import { NOVEL_STORAGE } from '@utils/Storages';
 import { downloadFile } from '@plugins/helpers/fetch';
@@ -18,7 +18,31 @@ import {
   categorySchema,
   chapterSchema,
 } from '@database/schema';
-import NativeFile from '@specs/NativeFile';
+import type { TransactionParameter } from '@database/manager/manager.d';
+import { getLibraryDefaultCategoryId } from '@hooks/persisted/useSettings';
+import NativeFile from '@modules/native-file';
+
+const getCategoryForNewNovel = async (tx: TransactionParameter) => {
+  const preferredCategoryId = getLibraryDefaultCategoryId();
+
+  if (preferredCategoryId) {
+    const preferredCategory = await tx
+      .select({ id: categorySchema.id })
+      .from(categorySchema)
+      .where(eq(categorySchema.id, preferredCategoryId))
+      .get();
+
+    if (preferredCategory) {
+      return preferredCategory;
+    }
+  }
+
+  return tx
+    .select({ id: categorySchema.id })
+    .from(categorySchema)
+    .where(eq(categorySchema.sort, 1))
+    .get();
+};
 
 /**
  * Inserts a novel and its chapters into the database using Drizzle ORM.
@@ -53,7 +77,7 @@ export const insertNovelAndChapters = async (
   if (novelId) {
     if (sourceNovel.cover) {
       const novelDir = NOVEL_STORAGE + '/' + pluginId + '/' + novelId;
-      NativeFile.mkdir(novelDir);
+      await NativeFile.mkdir(novelDir);
       const novelCoverPath = novelDir + '/cover.png';
       const novelCoverUri = 'file://' + novelCoverPath;
 
@@ -82,21 +106,16 @@ export const getAllNovels = async (): Promise<NovelInfo[]> => {
   return dbManager.select().from(novelSchema).all();
 };
 
-export const getNovelById = async (
-  novelId: number,
-): Promise<NovelInfo | undefined> => {
-  const res = dbManager
-    .select()
-    .from(novelSchema)
-    .where(eq(novelSchema.id, novelId))
-    .get();
-  return res;
+export const getNovelById = (novelId: number): DBNovelInfo | undefined => {
+  return dbManager.getSync(
+    dbManager.select().from(novelSchema).where(eq(novelSchema.id, novelId)),
+  );
 };
 
 export const getNovelByPath = (
   novelPath: string,
   pluginId: string,
-): NovelInfo | undefined => {
+): DBNovelInfo | undefined => {
   const res = dbManager.getSync(
     dbManager
       .select()
@@ -138,11 +157,7 @@ export const switchNovelToLibraryQuery = async (
         showToast(getString('browseScreen.removeFromLibrary'));
       } else {
         // Add to library: add to default category
-        const defaultCategory = await tx
-          .select({ id: categorySchema.id })
-          .from(categorySchema)
-          .where(eq(categorySchema.sort, 1))
-          .get();
+        const defaultCategory = await getCategoryForNewNovel(tx);
 
         if (defaultCategory) {
           await tx
@@ -179,11 +194,7 @@ export const switchNovelToLibraryQuery = async (
           .where(eq(novelSchema.id, novelId))
           .run();
 
-        const defaultCategory = await tx
-          .select({ id: categorySchema.id })
-          .from(categorySchema)
-          .where(eq(categorySchema.sort, 1))
-          .get();
+        const defaultCategory = await getCategoryForNewNovel(tx);
 
         if (defaultCategory) {
           await tx
@@ -204,16 +215,18 @@ export const switchNovelToLibraryQuery = async (
 /**
  * Removes multiple novels from the library and clears their categories.
  */
-export const removeNovelsFromLibrary = async (novelIds: Array<number>) => {
+export const removeNovelsFromLibrary = async (novelIds: number[]) => {
   if (!novelIds.length) return;
 
   await dbManager.write(async tx => {
-    tx.update(novelSchema)
+    await tx
+      .update(novelSchema)
       .set({ inLibrary: false })
       .where(inArray(novelSchema.id, novelIds))
       .run();
 
-    tx.delete(novelCategorySchema)
+    await tx
+      .delete(novelCategorySchema)
       .where(inArray(novelCategorySchema.novelId, novelIds))
       .run();
   });
@@ -230,7 +243,7 @@ export const getCachedNovels = async (): Promise<NovelInfo[]> => {
 
 export const deleteCachedNovels = async () => {
   await dbManager.write(async tx => {
-    tx.delete(novelSchema).where(eq(novelSchema.inLibrary, false)).run();
+    await tx.delete(novelSchema).where(eq(novelSchema.inLibrary, false)).run();
   });
   showToast(getString('advancedSettingsScreen.cachedNovelsDeletedToast'));
 };
@@ -277,11 +290,7 @@ export const restoreLibrary = async (novel: NovelInfo) => {
       .get();
 
     if (row) {
-      const defaultCategory = await tx
-        .select({ id: categorySchema.id })
-        .from(categorySchema)
-        .where(eq(categorySchema.sort, 1))
-        .get();
+      const defaultCategory = await getCategoryForNewNovel(tx);
 
       if (defaultCategory) {
         await tx
@@ -304,7 +313,8 @@ export const restoreLibrary = async (novel: NovelInfo) => {
 
 export const updateNovelInfo = async (info: NovelInfo) => {
   await dbManager.write(async tx => {
-    tx.update(novelSchema)
+    await tx
+      .update(novelSchema)
       .set({
         name: info.name,
         cover: info.cover || '',
@@ -329,13 +339,14 @@ export const pickCustomNovelCover = async (novel: NovelInfo) => {
   if (image.assets && image.assets[0]) {
     const novelDir = NOVEL_STORAGE + '/' + novel.pluginId + '/' + novel.id;
     let novelCoverUri = 'file://' + novelDir + '/cover.png';
-    if (!NativeFile.exists(novelDir)) {
-      NativeFile.mkdir(novelDir);
+    if (!(await NativeFile.exists(novelDir))) {
+      await NativeFile.mkdir(novelDir);
     }
-    NativeFile.copyFile(image.assets[0].uri, novelCoverUri);
+    await NativeFile.copyFile(image.assets[0].uri, novelCoverUri);
     novelCoverUri += '?' + Date.now();
     await dbManager.write(async tx => {
-      tx.update(novelSchema)
+      await tx
+        .update(novelSchema)
         .set({ cover: novelCoverUri })
         .where(eq(novelSchema.id, novel.id))
         .run();
@@ -350,7 +361,8 @@ export const updateNovelCategoryById = async (
 ) => {
   await dbManager.write(async tx => {
     for (const categoryId of categoryIds) {
-      tx.insert(novelCategorySchema)
+      await tx
+        .insert(novelCategorySchema)
         .values({ novelId, categoryId })
         .onConflictDoNothing()
         .run();
@@ -382,19 +394,17 @@ export const updateNovelCategories = async (
     if (categoryIds.length) {
       for (const novelId of novelIds) {
         for (const categoryId of categoryIds) {
-          tx.insert(novelCategorySchema)
+          await tx
+            .insert(novelCategorySchema)
             .values({ novelId, categoryId })
             .onConflictDoNothing()
             .run();
         }
       }
     } else {
-      // If no category is selected, set to the default category (sort = 1)
-      const defaultCategory = await tx
-        .select({ id: categorySchema.id })
-        .from(categorySchema)
-        .where(eq(categorySchema.sort, 1))
-        .get();
+      // If no category is selected, use the preferred category and fall back
+      // to the app's built-in default.
+      const defaultCategory = await getCategoryForNewNovel(tx);
 
       if (defaultCategory) {
         for (const novelId of novelIds) {
@@ -406,7 +416,8 @@ export const updateNovelCategories = async (
             .get();
 
           if (!hasCategory || hasCategory.count === 0) {
-            tx.insert(novelCategorySchema)
+            await tx
+              .insert(novelCategorySchema)
               .values({
                 novelId: novelId,
                 categoryId: defaultCategory.id,
@@ -426,18 +437,29 @@ export const _restoreNovelAndChapters = async (backupNovel: BackupNovel) => {
   const { chapters, ...novel } = backupNovel;
   await dbManager.write(async tx => {
     // Delete existing novel data
-    tx.delete(novelSchema).where(eq(novelSchema.id, novel.id)).run();
-    tx.delete(chapterSchema).where(eq(chapterSchema.novelId, novel.id)).run();
+    await tx.delete(novelSchema).where(eq(novelSchema.id, novel.id)).run();
+    await tx
+      .delete(chapterSchema)
+      .where(eq(chapterSchema.novelId, novel.id))
+      .run();
 
     // Restore novel
-    tx.insert(novelSchema).values(novel).run();
+    await tx
+      .insert(novelSchema)
+      .values({
+        ...novel,
+        totalChapters: 0,
+        chaptersDownloaded: 0,
+        chaptersUnread: 0,
+      })
+      .run();
 
     // Restore chapters in batches
     if (chapters.length > 0) {
       const BATCH_SIZE = 100;
       for (let i = 0; i < chapters.length; i += BATCH_SIZE) {
         const batch = chapters.slice(i, i + BATCH_SIZE);
-        tx.insert(chapterSchema).values(batch).run();
+        await tx.insert(chapterSchema).values(batch).run();
       }
     }
   });

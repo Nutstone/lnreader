@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Portal, TextInput } from 'react-native-paper';
-import { Modal } from '@components';
+import { TextInput } from 'react-native-paper';
+import { Dialog } from '@components';
 import { ThemeColors } from '../../theme/types';
+import { getString } from '@i18n/translations';
 
 interface ColorPickerModalProps {
   visible: boolean;
   title: string;
   color: string;
-  onSubmit: (val: string) => void;
+  onSubmit: (val: string | undefined) => void;
   closeModal: () => void;
   theme: ThemeColors;
   showAccentColors?: boolean;
@@ -47,6 +48,10 @@ const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
       setError('Enter a valid hex color code');
     }
   };
+  const onReset = () => {
+    onSubmit(undefined);
+    closeModal();
+  };
 
   const accentColors = [
     '#EF5350',
@@ -72,14 +77,12 @@ const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
   ];
 
   return (
-    <Portal>
-      <Modal visible={visible} onDismiss={onDismiss}>
-        <Text style={[styles.modalTitle, { color: theme.onSurface }]}>
-          {title}
-        </Text>
-        {showAccentColors ? (
+    <Dialog.Root visible={visible} onDismiss={onDismiss}>
+      <Dialog.Title>{title}</Dialog.Title>
+      {showAccentColors ? (
+        <Dialog.ScrollArea>
           <FlatList
-            contentContainerStyle={styles.marginBottom}
+            contentContainerStyle={styles.colorList}
             data={accentColors}
             numColumns={4}
             keyExtractor={item => item}
@@ -98,7 +101,9 @@ const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
               </View>
             )}
           />
-        ) : null}
+        </Dialog.ScrollArea>
+      ) : null}
+      <Dialog.Content>
         <TextInput
           value={text}
           defaultValue={typeof color === 'string' ? color : ''}
@@ -112,8 +117,15 @@ const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
           error={Boolean(error)}
         />
         <Text style={styles.errorText}>{error}</Text>
-      </Modal>
-    </Portal>
+      </Dialog.Content>
+      <Dialog.Actions>
+        <Dialog.Action title={getString('common.reset')} onPress={onReset} />
+        <Dialog.Action
+          title={getString('common.save')}
+          onPress={onSubmitEditing}
+        />
+      </Dialog.Actions>
+    </Dialog.Root>
   );
 };
 
@@ -123,10 +135,6 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#FF0033',
     paddingTop: 8,
-  },
-  modalTitle: {
-    fontSize: 24,
-    marginBottom: 16,
   },
   item: {
     borderRadius: 4,
@@ -138,5 +146,8 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   flex: { flex: 1 },
-  marginBottom: { marginBottom: 8 },
+  colorList: {
+    paddingHorizontal: 20,
+    paddingVertical: 4,
+  },
 });

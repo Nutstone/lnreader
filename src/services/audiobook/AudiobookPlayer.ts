@@ -1,5 +1,5 @@
 import { Audio } from 'expo-av';
-import NativeFile from '@specs/NativeFile';
+import NativeFile from '@modules/native-file';
 import { getMMKVObject } from '@utils/mmkv/mmkv';
 import {
   AUDIOBOOK_SETTINGS,
@@ -87,10 +87,9 @@ export class AudiobookPlayer {
     try {
       const pipeline = this.getPipeline(novelId);
       this.tempDir =
-        NativeFile.getConstants().ExternalCachesDirectoryPath +
-        '/audiobook_temp';
-      if (!NativeFile.exists(this.tempDir)) {
-        NativeFile.mkdir(this.tempDir);
+        NativeFile.ExternalCachesDirectoryPath + '/audiobook_temp';
+      if (!(await NativeFile.exists(this.tempDir))) {
+        await NativeFile.mkdir(this.tempDir);
       }
 
       // Annotate the chapter
@@ -203,7 +202,7 @@ export class AudiobookPlayer {
 
       // Write base64 WAV to temp file
       const tempPath = `${this.tempDir}/segment_${index}.wav`;
-      NativeFile.writeFile(tempPath, segment.audioData, 'base64');
+      await NativeFile.writeFile(tempPath, segment.audioData);
 
       // Load and play
       const { sound } = await Audio.Sound.createAsync(
@@ -216,9 +215,7 @@ export class AudiobookPlayer {
       sound.setOnPlaybackStatusUpdate(status => {
         if (status.isLoaded && status.didJustFinish) {
           // Clean up temp file
-          if (NativeFile.exists(tempPath)) {
-            NativeFile.unlink(tempPath);
-          }
+          void NativeFile.unlink(tempPath).catch(() => {});
           if (this.state === 'playing') {
             this.playSegment(index + 1);
           }
@@ -294,12 +291,10 @@ export class AudiobookPlayer {
     this.currentIndex = 0;
 
     // Clean up temp files after buffering has stopped
-    if (wasActive && this.tempDir && NativeFile.exists(this.tempDir)) {
-      try {
-        NativeFile.unlink(this.tempDir);
-      } catch {
+    if (wasActive && this.tempDir) {
+      await NativeFile.unlink(this.tempDir).catch(() => {
         // Ignore cleanup errors
-      }
+      });
     }
   }
 

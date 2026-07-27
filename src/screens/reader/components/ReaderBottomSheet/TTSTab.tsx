@@ -1,25 +1,24 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { View, StyleSheet, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { Pressable, View, StyleSheet, Text, ScrollView } from 'react-native';
 import { BottomSheetScrollView } from '@gorhom/bottom-sheet';
-import Slider from '@react-native-community/slider';
-import { getAvailableVoicesAsync, Voice } from 'expo-speech';
+import { Dialog, List, Slider } from '@components';
 import { getLocales } from 'expo-localization';
+import { Tts, TtsEngine, TtsVoice } from '@modules/nitro-tts';
 import {
   useTheme,
   useChapterGeneralSettings,
   useChapterReaderSettings,
 } from '@hooks/persisted';
-import { getString } from '@strings/translations';
-import { List, Button } from '@components/index';
-import { Portal, Modal, Chip } from 'react-native-paper';
+import { getString } from '@i18n/translations';
+import { Chip } from 'react-native-paper';
 import ReaderSheetPreferenceItem from './ReaderSheetPreferenceItem';
 
 interface VoicePickerModalProps {
   visible: boolean;
   onDismiss: () => void;
-  voices: Voice[];
-  onSelect: (voice: Voice) => void;
-  currentVoice?: Voice;
+  voices: TtsVoice[];
+  onSelect: (voice?: TtsVoice) => void;
+  currentVoice?: TtsVoice;
 }
 
 const VoicePickerModal: React.FC<VoicePickerModalProps> = ({
@@ -27,7 +26,7 @@ const VoicePickerModal: React.FC<VoicePickerModalProps> = ({
   onDismiss,
   voices,
   onSelect,
-  currentVoice
+  currentVoice,
 }) => {
   const theme = useTheme();
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
@@ -56,14 +55,12 @@ const VoicePickerModal: React.FC<VoicePickerModalProps> = ({
     if (selectedLanguages.length === 0) {
       // Show system language voices by default
       return voices.filter(voice => {
-        if (voice.name === 'System') return true;
         const lang = voice.language?.split('-')[0];
         return lang === systemLocale;
       });
     }
 
     return voices.filter(voice => {
-      if (voice.name === 'System') return true;
       const lang = voice.language?.split('-')[0];
       return lang && selectedLanguages.includes(lang);
     });
@@ -79,28 +76,19 @@ const VoicePickerModal: React.FC<VoicePickerModalProps> = ({
     });
   };
 
-  useEffect(() => {
-    // Reset to system language when modal opens
-    if (visible) {
-      setSelectedLanguages([]);
-    }
-  }, [visible]);
+  const handleDismiss = () => {
+    setSelectedLanguages([]);
+    onDismiss();
+  };
 
   return (
-    <Portal>
-      <Modal
-        visible={visible}
-        onDismiss={onDismiss}
-        contentContainerStyle={[
-          styles.modalContent,
-          { backgroundColor: theme.surface }
-        ]}
-      >
-        <Text style={[styles.modalTitle, { color: theme.onSurface }]}>
-          Select Voice
-        </Text>
-
-        {/* Language Filter */}
+    <Dialog.Root
+      visible={visible}
+      onDismiss={handleDismiss}
+      surfaceStyle={styles.modalContent}
+    >
+      <Dialog.Title>Select Voice</Dialog.Title>
+      <Dialog.Content>
         <View style={styles.languageFilterContainer}>
           <Text style={[styles.filterLabel, { color: theme.onSurfaceVariant }]}>
             Filter by language:
@@ -114,7 +102,8 @@ const VoicePickerModal: React.FC<VoicePickerModalProps> = ({
               const isSelected = selectedLanguages.includes(lang);
               const isSystemLang = lang === systemLocale;
               const showingSystemOnly = selectedLanguages.length === 0;
-              const isActive = isSelected || (showingSystemOnly && isSystemLang);
+              const isActive =
+                isSelected || (showingSystemOnly && isSystemLang);
 
               return (
                 <Chip
@@ -123,11 +112,11 @@ const VoicePickerModal: React.FC<VoicePickerModalProps> = ({
                   onPress={() => toggleLanguage(lang)}
                   style={[
                     styles.languageChip,
-                    isActive && { backgroundColor: theme.primary }
+                    isActive && { backgroundColor: theme.primary },
                   ]}
                   textStyle={[
                     styles.languageChipText,
-                    { color: isActive ? theme.onPrimary : theme.onSurface }
+                    { color: isActive ? theme.onPrimary : theme.onSurface },
                   ]}
                 >
                   {lang.toUpperCase()}
@@ -137,54 +126,166 @@ const VoicePickerModal: React.FC<VoicePickerModalProps> = ({
             })}
           </ScrollView>
         </View>
-
-        {/* Voice List */}
+      </Dialog.Content>
+      <Dialog.ScrollArea>
         <ScrollView style={styles.voiceList}>
+          <Pressable
+            style={[
+              styles.voiceItem,
+              !currentVoice && { backgroundColor: theme.surfaceVariant },
+            ]}
+            onPress={() => {
+              onSelect(undefined);
+              handleDismiss();
+            }}
+          >
+            <View style={styles.voiceItemContent}>
+              <Text style={[styles.voiceItemText, { color: theme.onSurface }]}>
+                System default
+              </Text>
+            </View>
+            {!currentVoice ? (
+              <Text style={[styles.checkIcon, { color: theme.primary }]}>
+                ✓
+              </Text>
+            ) : null}
+          </Pressable>
           {filteredVoices.length === 0 ? (
-            <Text style={[styles.noVoicesText, { color: theme.onSurfaceVariant }]}>
+            <Text
+              style={[styles.noVoicesText, { color: theme.onSurfaceVariant }]}
+            >
               No voices available for selected languages
             </Text>
           ) : (
-            filteredVoices.map((voice: Voice, index: number) => (
-              <TouchableOpacity
-                key={index}
+            filteredVoices.map((voice: TtsVoice, index: number) => (
+              <Pressable
+                key={voice.identifier || index}
                 style={[
                   styles.voiceItem,
                   currentVoice?.identifier === voice.identifier && {
                     backgroundColor: theme.surfaceVariant,
-                  }
+                  },
                 ]}
                 onPress={() => {
                   onSelect(voice);
-                  onDismiss();
+                  handleDismiss();
                 }}
               >
                 <View style={styles.voiceItemContent}>
-                  <Text style={[styles.voiceItemText, { color: theme.onSurface }]}>
+                  <Text
+                    style={[styles.voiceItemText, { color: theme.onSurface }]}
+                  >
                     {voice.name}
                   </Text>
-                  {voice.language && (
-                    <Text style={[styles.voiceItemLanguage, { color: theme.onSurfaceVariant }]}>
+                  {voice.language ? (
+                    <Text
+                      style={[
+                        styles.voiceItemLanguage,
+                        { color: theme.onSurfaceVariant },
+                      ]}
+                    >
                       {voice.language}
                     </Text>
-                  )}
+                  ) : null}
                 </View>
-                {currentVoice?.identifier === voice.identifier && (
-                  <Text style={[styles.checkIcon, { color: theme.primary }]}>✓</Text>
-                )}
-              </TouchableOpacity>
+                {currentVoice?.identifier === voice.identifier ? (
+                  <Text style={[styles.checkIcon, { color: theme.primary }]}>
+                    ✓
+                  </Text>
+                ) : null}
+              </Pressable>
             ))
           )}
         </ScrollView>
+      </Dialog.ScrollArea>
+      <Dialog.Actions>
+        <Dialog.Action onPress={handleDismiss}>Cancel</Dialog.Action>
+      </Dialog.Actions>
+    </Dialog.Root>
+  );
+};
 
-        <Button
-          title="Cancel"
-          mode="outlined"
-          onPress={onDismiss}
-          style={styles.cancelButton}
-        />
-      </Modal>
-    </Portal>
+interface EnginePickerModalProps {
+  visible: boolean;
+  onDismiss: () => void;
+  engines: TtsEngine[];
+  onSelect: (engine?: TtsEngine) => void;
+  currentEngine?: TtsEngine;
+}
+
+const EnginePickerModal: React.FC<EnginePickerModalProps> = ({
+  visible,
+  onDismiss,
+  engines,
+  onSelect,
+  currentEngine,
+}) => {
+  const theme = useTheme();
+
+  return (
+    <Dialog.Root
+      visible={visible}
+      onDismiss={onDismiss}
+      surfaceStyle={styles.modalContent}
+    >
+      <Dialog.Title>Select Engine</Dialog.Title>
+      <Dialog.ScrollArea>
+        <ScrollView style={styles.voiceList}>
+          <Pressable
+            style={[
+              styles.voiceItem,
+              !currentEngine && { backgroundColor: theme.surfaceVariant },
+            ]}
+            onPress={() => {
+              onSelect(undefined);
+              onDismiss();
+            }}
+          >
+            <View style={styles.voiceItemContent}>
+              <Text style={[styles.voiceItemText, { color: theme.onSurface }]}>
+                System default
+              </Text>
+            </View>
+            {!currentEngine ? (
+              <Text style={[styles.checkIcon, { color: theme.primary }]}>
+                ✓
+              </Text>
+            ) : null}
+          </Pressable>
+          {engines.map(engine => (
+            <Pressable
+              key={engine.name}
+              style={[
+                styles.voiceItem,
+                currentEngine?.name === engine.name && {
+                  backgroundColor: theme.surfaceVariant,
+                },
+              ]}
+              onPress={() => {
+                onSelect(engine);
+                onDismiss();
+              }}
+            >
+              <View style={styles.voiceItemContent}>
+                <Text
+                  style={[styles.voiceItemText, { color: theme.onSurface }]}
+                >
+                  {engine.label}
+                </Text>
+              </View>
+              {currentEngine?.name === engine.name ? (
+                <Text style={[styles.checkIcon, { color: theme.primary }]}>
+                  ✓
+                </Text>
+              ) : null}
+            </Pressable>
+          ))}
+        </ScrollView>
+      </Dialog.ScrollArea>
+      <Dialog.Actions>
+        <Dialog.Action onPress={onDismiss}>Cancel</Dialog.Action>
+      </Dialog.Actions>
+    </Dialog.Root>
   );
 };
 
@@ -196,20 +297,45 @@ const TTSTab: React.FC = () => {
     setChapterGeneralSettings,
   } = useChapterGeneralSettings();
 
-  const { tts, audiobook, setChapterReaderSettings } = useChapterReaderSettings();
-  const [voices, setVoices] = useState<Voice[]>([]);
+  const { tts, audiobook, setChapterReaderSettings } =
+    useChapterReaderSettings();
+  const [engines, setEngines] = useState<TtsEngine[]>([]);
+  const [voices, setVoices] = useState<TtsVoice[]>([]);
+  const [engineModalVisible, setEngineModalVisible] = useState(false);
   const [voiceModalVisible, setVoiceModalVisible] = useState(false);
 
+  // Android only; resolves empty on iOS, which hides the Engine row below.
   useEffect(() => {
-    getAvailableVoicesAsync().then(res => {
-      res.sort((a, b) => a.name.localeCompare(b.name));
-      setVoices([{ name: 'System', language: 'System' } as Voice, ...res]);
+    Tts.getEngines().then(res => {
+      setEngines([...res].sort((a, b) => a.label.localeCompare(b.label)));
     });
   }, []);
 
-  const handleVoiceSelect = useCallback((voice: Voice) => {
-    setChapterReaderSettings({ tts: { ...tts, voice } });
-  }, [tts, setChapterReaderSettings]);
+  // Voices belong to a specific engine, so refetch whenever it changes.
+  const engineName = tts?.engine?.name;
+  useEffect(() => {
+    Tts.getVoices(engineName).then(res => {
+      setVoices([...res].sort((a, b) => a.name.localeCompare(b.name)));
+    });
+  }, [engineName]);
+
+  const handleEngineSelect = useCallback(
+    (engine?: TtsEngine) => {
+      // Voice identifiers are engine-scoped, so switching engines clears the
+      // previously selected voice rather than carrying over a stale one.
+      setChapterReaderSettings({
+        tts: { ...tts, engine, voice: undefined },
+      });
+    },
+    [tts, setChapterReaderSettings],
+  );
+
+  const handleVoiceSelect = useCallback(
+    (voice?: TtsVoice) => {
+      setChapterReaderSettings({ tts: { ...tts, voice } });
+    },
+    [tts, setChapterReaderSettings],
+  );
 
   return (
     <>
@@ -227,39 +353,44 @@ const TTSTab: React.FC = () => {
             onPress={() =>
               setChapterGeneralSettings({
                 TTSEnable: !TTSEnable,
-                ...((!TTSEnable) && { AudiobookEnable: false }),
+                ...(!TTSEnable && { AudiobookEnable: false }),
               })
             }
             theme={theme}
           />
 
-          {TTSEnable && (
+          {TTSEnable ? (
             <>
-              <TouchableOpacity
-                style={styles.settingItem}
+              {engines.length > 0 ? (
+                <List.Item
+                  title="Engine"
+                  description={tts?.engine?.label || 'System default'}
+                  onPress={() => setEngineModalVisible(true)}
+                  right="chevron-right"
+                  theme={theme}
+                />
+              ) : null}
+
+              <List.Item
+                title="Voice"
+                description={tts?.voice?.name || 'System default'}
                 onPress={() => setVoiceModalVisible(true)}
-              >
-                <Text style={[styles.label, { color: theme.onSurface }]}>
-                  Voice
-                </Text>
-                <Text style={[styles.value, { color: theme.onSurfaceVariant }]}>
-                  {tts?.voice?.name || 'System'}
-                </Text>
-              </TouchableOpacity>
+                right="chevron-right"
+                theme={theme}
+              />
 
               <View style={styles.sliderSection}>
                 <Text style={[styles.sliderLabel, { color: theme.onSurface }]}>
                   Speed: {tts?.rate?.toFixed(1) || '1.0'}x
                 </Text>
                 <Slider
-                  style={styles.slider}
                   value={tts?.rate || 1}
-                  minimumValue={0.1}
-                  maximumValue={5}
+                  min={0.1}
+                  max={5}
                   step={0.1}
-                  minimumTrackTintColor={theme.primary}
-                  maximumTrackTintColor={theme.surfaceVariant}
-                  thumbTintColor={theme.primary}
+                  showValueIndicator
+                  formatValue={value => `${value.toFixed(1)}x`}
+                  accessibilityLabel="Text to speech speed"
                   onSlidingComplete={value =>
                     setChapterReaderSettings({ tts: { ...tts, rate: value } })
                   }
@@ -271,14 +402,13 @@ const TTSTab: React.FC = () => {
                   Pitch: {tts?.pitch?.toFixed(1) || '1.0'}
                 </Text>
                 <Slider
-                  style={styles.slider}
                   value={tts?.pitch || 1}
-                  minimumValue={0.1}
-                  maximumValue={5}
+                  min={0.1}
+                  max={5}
                   step={0.1}
-                  minimumTrackTintColor={theme.primary}
-                  maximumTrackTintColor={theme.surfaceVariant}
-                  thumbTintColor={theme.primary}
+                  showValueIndicator
+                  formatValue={value => value.toFixed(1)}
+                  accessibilityLabel="Text to speech pitch"
                   onSlidingComplete={value =>
                     setChapterReaderSettings({ tts: { ...tts, pitch: value } })
                   }
@@ -286,17 +416,26 @@ const TTSTab: React.FC = () => {
               </View>
 
               <ReaderSheetPreferenceItem
+                description={getString(
+                  'readerScreen.bottomSheet.ttsAutoPageAdvanceDescription',
+                )}
                 label="Auto Page Advance"
                 value={tts?.autoPageAdvance === true}
                 onPress={() =>
                   setChapterReaderSettings({
-                    tts: { ...tts, autoPageAdvance: !(tts?.autoPageAdvance === true) },
+                    tts: {
+                      ...tts,
+                      autoPageAdvance: !(tts?.autoPageAdvance === true),
+                    },
                   })
                 }
                 theme={theme}
               />
 
               <ReaderSheetPreferenceItem
+                description={getString(
+                  'readerScreen.bottomSheet.ttsScrollToTopDescription',
+                )}
                 label="Scroll to Top"
                 value={tts?.scrollToTop !== false}
                 onPress={() =>
@@ -306,27 +445,8 @@ const TTSTab: React.FC = () => {
                 }
                 theme={theme}
               />
-
-              <View style={styles.resetButtonContainer}>
-                <Button
-                  title={getString('common.reset')}
-                  mode="outlined"
-                  onPress={() => {
-                    setChapterReaderSettings({
-                      tts: {
-                        pitch: 1,
-                        rate: 1,
-                        voice: { name: 'System', language: 'System' } as Voice,
-                        autoPageAdvance: false,
-                        scrollToTop: true,
-                      },
-                    });
-                  }}
-                  style={styles.resetButton}
-                />
-              </View>
             </>
-          )}
+          ) : null}
         </View>
 
         <View style={styles.section}>
@@ -364,6 +484,13 @@ const TTSTab: React.FC = () => {
         <View style={styles.bottomSpacing} />
       </BottomSheetScrollView>
 
+      <EnginePickerModal
+        visible={engineModalVisible}
+        onDismiss={() => setEngineModalVisible(false)}
+        engines={engines}
+        onSelect={handleEngineSelect}
+        currentEngine={tts?.engine}
+      />
       <VoicePickerModal
         visible={voiceModalVisible}
         onDismiss={() => setVoiceModalVisible(false)}
@@ -387,19 +514,6 @@ const styles = StyleSheet.create({
   section: {
     marginVertical: 8,
   },
-  settingItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  label: {
-    fontSize: 16,
-  },
-  value: {
-    fontSize: 14,
-  },
   sliderSection: {
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -408,29 +522,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 8,
   },
-  slider: {
-    height: 40,
-  },
-  resetButtonContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  resetButton: {
-    alignSelf: 'flex-start',
-  },
   bottomSpacing: {
     height: 24,
   },
   modalContent: {
-    margin: 20,
-    borderRadius: 8,
-    padding: 20,
     maxHeight: '80%',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 12,
   },
   languageFilterContainer: {
     marginBottom: 16,
@@ -451,11 +547,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   voiceItem: {
+    borderCurve: 'continuous',
+    borderRadius: 4,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
-    borderRadius: 4,
     marginBottom: 4,
   },
   voiceItemContent: {
@@ -472,9 +569,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: 20,
     fontSize: 14,
-  },
-  cancelButton: {
-    marginTop: 16,
   },
   languageChipText: {
     fontSize: 12,

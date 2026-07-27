@@ -2,7 +2,7 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useChapterGeneralSettings, useTheme } from '@hooks/persisted';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { List } from '@components/index';
 import SettingSwitch from '../../components/SettingSwitch';
 
@@ -29,6 +29,9 @@ const AccessibilityTab: React.FC = () => {
         </List.SubHeader>
         <SettingSwitch
           label={getString('readerScreen.bottomSheet.fullscreen')}
+          description={getString(
+            'readerScreen.bottomSheet.fullscreenDescription',
+          )}
           value={fullScreenMode}
           onPress={() =>
             setChapterGeneralSettings({ fullScreenMode: !fullScreenMode })
@@ -37,6 +40,9 @@ const AccessibilityTab: React.FC = () => {
         />
         <SettingSwitch
           label={getString('readerScreen.bottomSheet.showProgressPercentage')}
+          description={getString(
+            'readerScreen.bottomSheet.showProgressPercentageDescription',
+          )}
           value={showScrollPercentage}
           onPress={() =>
             setChapterGeneralSettings({
@@ -47,6 +53,9 @@ const AccessibilityTab: React.FC = () => {
         />
         <SettingSwitch
           label={getString('readerScreen.bottomSheet.showBatteryAndTime')}
+          description={getString(
+            'readerScreen.bottomSheet.showBatteryAndTimeDescription',
+          )}
           value={showBatteryAndTime}
           onPress={() =>
             setChapterGeneralSettings({
@@ -69,6 +78,9 @@ const AccessibilityTab: React.FC = () => {
         <List.SubHeader theme={theme}>Reading Enhancements</List.SubHeader>
         <SettingSwitch
           label={getString('readerScreen.bottomSheet.bionicReading')}
+          description={getString(
+            'readerScreen.bottomSheet.bionicReadingDescription',
+          )}
           value={bionicReading}
           onPress={() =>
             setChapterGeneralSettings({ bionicReading: !bionicReading })

@@ -59,6 +59,7 @@ export interface ChapterItem {
   chapterNumber?: number;
   releaseTime?: string;
   page?: string;
+  scanlator?: string | string[];
 }
 
 export enum NovelStatus {
@@ -106,7 +107,12 @@ export interface PluginItem {
 }
 
 export interface ImageRequestInit {
-  [x: string]: string | Record<string, string> | Headers | FormData | undefined;
+  [x: string]:
+    | string
+    | Record<string, string>
+    | Headers
+    | FormData
+    | undefined;
   method?: string;
   headers: Record<string, string>;
   body?: string;

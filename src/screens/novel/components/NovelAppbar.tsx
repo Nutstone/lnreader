@@ -1,13 +1,10 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { Appbar } from 'react-native-paper';
 import { Menu as DefaultMenu } from '@components';
 import { ThemeColors } from '@theme/types';
 import Animated, {
-  FadeIn,
-  FadeOut,
   SharedValue,
-  SlideInUp,
   SlideOutUp,
   interpolateColor,
   useAnimatedStyle,
@@ -17,8 +14,32 @@ import { NovelInfo } from '@database/types';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { MaterialDesignIconName } from '@type/icon';
 
-const AnimatedAppbarAction =
-  Animated.createAnimatedComponent(Appbar.Action);
+const NovelAppbarAction = memo(
+  ({
+    icon,
+    onPress,
+    theme,
+    style,
+    size = 24,
+  }: {
+    icon: MaterialDesignIconName;
+    onPress: () => void;
+    theme: ThemeColors;
+    style?: StyleProp<ViewStyle>;
+    size?: number;
+  }) => {
+    const appbarTheme = useMemo(() => ({ colors: theme }), [theme]);
+    return (
+      <Appbar.Action
+        theme={appbarTheme}
+        icon={icon}
+        onPress={onPress}
+        style={style}
+        size={size}
+      />
+    );
+  },
+);
 
 const Menu = React.memo(
   ({
@@ -82,6 +103,8 @@ const NovelAppbar = ({
   setCustomNovelCover,
   goBack,
   shareNovel,
+  refreshNovel,
+  editCategories,
   showJumpToChapterModal,
   headerOpacity,
 }: {
@@ -95,6 +118,8 @@ const NovelAppbar = ({
   setCustomNovelCover: () => Promise<void>;
   goBack: () => void;
   shareNovel: () => void;
+  refreshNovel: () => void;
+  editCategories: () => void;
   showJumpToChapterModal: (arg: boolean) => void;
   headerOpacity: SharedValue<number>;
 }) => {
@@ -112,29 +137,17 @@ const NovelAppbar = ({
   const [downloadMenu, showDownloadMenu] = useState(false);
   const [extraMenu, showExtraMenu] = useState(false);
 
-  const appbarTheme = useMemo(
-    () => ({ colors: theme }),
-    [theme],
-  );
+  const appbarTheme = useMemo(() => ({ colors: theme }), [theme]);
 
-  const AppbarAction = useCallback(
-    (props: {
-      icon: MaterialDesignIconName;
-      onPress: () => void;
-      style?: StyleProp<ViewStyle>;
-      size?: number;
-    }) => {
-      return (
-        <AnimatedAppbarAction
-          entering={FadeIn.duration(250)}
-          exiting={FadeOut.delay(50).duration(250)}
-          theme={appbarTheme}
-          size={24}
-          {...props}
-        />
-      );
-    },
-    [appbarTheme],
+  const renderExportIcon = useCallback(
+    (onPress: () => void) => (
+      <NovelAppbarAction
+        theme={theme}
+        icon="file-export-outline"
+        onPress={onPress}
+      />
+    ),
+    [theme],
   );
 
   const downloadMenuItems = useMemo(() => {
@@ -170,8 +183,28 @@ const NovelAppbar = ({
     ];
   }, [deleteChapters, downloadChapters, downloadCustomChapterModal]);
 
-  const extraMenuItems = useMemo(
-    () => [
+  const extraMenuItems = useMemo(() => {
+    const items = [];
+
+    if (!isLocal) {
+      items.push({
+        label: getString('webview.refresh'),
+        onPress: refreshNovel,
+      });
+    }
+
+    if (novel?.inLibrary) {
+      items.push({
+        label: getString('categories.header'),
+        onPress: editCategories,
+      });
+    }
+
+    items.push(
+      {
+        label: getString('webview.share'),
+        onPress: shareNovel,
+      },
       {
         label: getString('novelScreen.edit.info'),
         onPress: () => showEditInfoModal(true),
@@ -180,9 +213,18 @@ const NovelAppbar = ({
         label: getString('novelScreen.edit.cover'),
         onPress: () => setCustomNovelCover(),
       },
-    ],
-    [showEditInfoModal, setCustomNovelCover],
-  );
+    );
+
+    return items;
+  }, [
+    editCategories,
+    isLocal,
+    novel?.inLibrary,
+    refreshNovel,
+    setCustomNovelCover,
+    shareNovel,
+    showEditInfoModal,
+  ]);
 
   const openDlMenu = useCallback(() => showDownloadMenu(true), []);
   const closeDlMenu = useCallback(() => showDownloadMenu(false), []);
@@ -201,7 +243,6 @@ const NovelAppbar = ({
 
   return (
     <Animated.View
-      entering={SlideInUp.duration(250)}
       exiting={SlideOutUp.duration(250)}
       style={headerOpacityStyle}
     >
@@ -209,10 +250,13 @@ const NovelAppbar = ({
         <Appbar.BackAction onPress={goBack} />
 
         <View style={styles.row}>
-          <ExportNovelAsEpubButton novel={novel} iconComponent={AppbarAction} />
-          <AppbarAction icon="share-variant" onPress={shareNovel} />
-          <AppbarAction
-            icon="text-box-search-outline"
+          <ExportNovelAsEpubButton
+            novel={novel}
+            renderIcon={renderExportIcon}
+          />
+          <NovelAppbarAction
+            theme={theme}
+            icon="book-search-outline"
             onPress={openJumpToChapter}
           />
           {!isLocal ? (

@@ -1,4 +1,4 @@
-import { NovelInfo, ChapterInfo } from '@database/types';
+import { ChapterInfo } from '@database/types';
 import {
   getNovelByPath,
   insertNovelAndChapters,
@@ -8,15 +8,18 @@ import { getNovelChapters } from '@database/queries/ChapterQueries';
 import { fetchNovel } from '@services/plugin/fetch';
 import { parseChapterNumber } from '@utils/parseChapterNumber';
 
-import { getMMKVObject, setMMKVObject } from '@utils/mmkv/mmkv';
 import {
-  LAST_READ_PREFIX,
-  NOVEL_SETTINGS_PREFIX,
-} from '@hooks/persisted/useNovel';
-import { sleep } from '@utils/sleep';
-import ServiceManager, {
-  BackgroundTaskMetadata,
-} from '@services/ServiceManager';
+  novelPersistence,
+  type NovelPersistenceInput,
+} from '@hooks/persisted/useNovel/store-helper/contracts';
+import type {
+  BackgroundTaskEnqueuer,
+  ChapterDownload,
+  MigrateNovelData,
+  MigrationNovelOptions,
+  MigrationNovelPreference,
+  TaskProgressUpdater,
+} from '@services/backgroundTasks/contracts';
 import { dbManager } from '@database/db';
 import {
   chapterSchema,
@@ -24,12 +27,6 @@ import {
   novelSchema,
 } from '@database/schema';
 import { eq } from 'drizzle-orm';
-
-export interface MigrateNovelData {
-  pluginId: string;
-  fromNovel: NovelInfo;
-  toNovelPath: string;
-}
 
 const sortChaptersByNumber = (novelName: string, chapters: ChapterInfo[]) => {
   for (let i = 0; i < chapters.length; ++i) {
@@ -48,11 +45,30 @@ const sortChaptersByNumber = (novelName: string, chapters: ChapterInfo[]) => {
   });
 };
 
+const LEGACY_MIGRATION_OPTIONS: MigrationNovelOptions = {
+  cover: 'current',
+  metadata: 'current',
+  redownloadChapters: true,
+};
+
+const selectMigrationValue = (
+  currentValue: string | null | undefined,
+  destinationValue: string | null | undefined,
+  preference: MigrationNovelPreference,
+) =>
+  preference === 'destination'
+    ? destinationValue || currentValue || ''
+    : currentValue || destinationValue || '';
+
 export const migrateNovel = async (
-  { pluginId, fromNovel, toNovelPath }: MigrateNovelData,
-  setMeta: (
-    transformer: (meta: BackgroundTaskMetadata) => BackgroundTaskMetadata,
-  ) => void,
+  {
+    pluginId,
+    fromNovel,
+    toNovelPath,
+    options = LEGACY_MIGRATION_OPTIONS,
+  }: MigrateNovelData,
+  setMeta: TaskProgressUpdater,
+  enqueue: BackgroundTaskEnqueuer,
 ) => {
   setMeta(meta => ({
     ...meta,
@@ -78,12 +94,36 @@ export const migrateNovel = async (
     await tx
       .update(novelSchema)
       .set({
-        cover: fromNovel.cover || toNovel!.cover || '',
-        summary: fromNovel.summary || toNovel!.summary || '',
-        author: fromNovel.author || toNovel!.author || '',
-        artist: fromNovel.artist || toNovel!.artist || '',
-        status: fromNovel.status || toNovel!.status || '',
-        genres: fromNovel.genres || toNovel!.genres || '',
+        cover: selectMigrationValue(
+          fromNovel.cover,
+          toNovel!.cover,
+          options.cover,
+        ),
+        summary: selectMigrationValue(
+          fromNovel.summary,
+          toNovel!.summary,
+          options.metadata,
+        ),
+        author: selectMigrationValue(
+          fromNovel.author,
+          toNovel!.author,
+          options.metadata,
+        ),
+        artist: selectMigrationValue(
+          fromNovel.artist,
+          toNovel!.artist,
+          options.metadata,
+        ),
+        status: selectMigrationValue(
+          fromNovel.status,
+          toNovel!.status,
+          options.metadata,
+        ),
+        genres: selectMigrationValue(
+          fromNovel.genres,
+          toNovel!.genres,
+          options.metadata,
+        ),
         inLibrary: true,
       })
       .where(eq(novelSchema.id, toNovel!.id));
@@ -96,22 +136,21 @@ export const migrateNovel = async (
     await tx.delete(novelSchema).where(eq(novelSchema.id, fromNovel.id));
   });
 
-  setMMKVObject(
-    `${NOVEL_SETTINGS_PREFIX}_${toNovel!.pluginId}_${toNovel!.path}`,
-    getMMKVObject(
-      `${NOVEL_SETTINGS_PREFIX}_${fromNovel.pluginId}_${fromNovel.path}`,
-    ),
-  );
+  const fromPersistenceInput: NovelPersistenceInput = {
+    pluginId: fromNovel.pluginId,
+    novelPath: fromNovel.path,
+  };
+  const toPersistenceInput: NovelPersistenceInput = {
+    pluginId: toNovel!.pluginId,
+    novelPath: toNovel!.path,
+  };
 
-  const lastRead = getMMKVObject<NovelInfo>(
-    `${LAST_READ_PREFIX}_${fromNovel.pluginId}_${fromNovel.path}`,
-  );
+  novelPersistence.copySettings(fromPersistenceInput, toPersistenceInput);
+
+  const lastRead = novelPersistence.readLastRead(fromPersistenceInput);
 
   const setLastRead = (chapter: ChapterInfo) => {
-    setMMKVObject(
-      `${LAST_READ_PREFIX}_${toNovel!.pluginId}_${toNovel!.path}`,
-      chapter,
-    );
+    novelPersistence.writeLastRead(toPersistenceInput, chapter);
   };
 
   fromChapters = sortChaptersByNumber(fromNovel.name, fromChapters);
@@ -119,6 +158,7 @@ export const migrateNovel = async (
 
   let fromPointer = 0,
     toPointer = 0;
+  const chaptersToDownload: ChapterDownload[] = [];
   while (fromPointer < fromChapters.length && toPointer < toChapters.length) {
     const fromChapter = fromChapters[fromPointer];
     const toChapter = toChapters[toPointer];
@@ -149,16 +189,11 @@ export const migrateNovel = async (
         .where(eq(chapterSchema.id, toChapter.id));
     });
 
-    if (fromChapter.isDownloaded) {
-      ServiceManager.manager.addTask({
-        name: 'DOWNLOAD_CHAPTER',
-        data: {
-          chapterId: toChapter.id,
-          novelName: toNovel.name,
-          chapterName: toChapter.name,
-        },
+    if (options.redownloadChapters && fromChapter.isDownloaded) {
+      chaptersToDownload.push({
+        chapterId: toChapter.id,
+        chapterName: toChapter.name,
       });
-      await sleep(1000);
     }
 
     if (lastRead && fromChapter.id === lastRead.id) {
@@ -167,6 +202,17 @@ export const migrateNovel = async (
 
     ++fromPointer;
     ++toPointer;
+  }
+
+  if (chaptersToDownload.length) {
+    enqueue({
+      name: 'DOWNLOAD_CHAPTER',
+      data: {
+        novelName: toNovel.name,
+        novelId: toNovel.id,
+        chapters: chaptersToDownload,
+      },
+    });
   }
 
   setMeta(meta => ({

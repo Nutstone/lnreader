@@ -4,7 +4,7 @@ import { TextInput } from 'react-native-paper';
 import { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { defaultTo } from 'lodash-es';
 import { useTheme, useChapterGeneralSettings } from '@hooks/persisted';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { List, Button } from '@components/index';
 import SettingSwitch from '../../components/SettingSwitch';
 
@@ -38,6 +38,9 @@ const NavigationTab: React.FC = () => {
         <List.SubHeader theme={theme}>Navigation Controls</List.SubHeader>
         <SettingSwitch
           label={getString('readerScreen.bottomSheet.volumeButtonsScroll')}
+          description={getString(
+            'readerScreen.bottomSheet.volumeButtonsScrollDescription',
+          )}
           value={useVolumeButtons}
           onPress={() =>
             setChapterGeneralSettings({ useVolumeButtons: !useVolumeButtons })
@@ -47,17 +50,21 @@ const NavigationTab: React.FC = () => {
         {useVolumeButtons && (
           <View style={styles.inputContainer}>
             <TextInput
-              label={getString('readerSettings.volumeButtonsOffset')}
+              label={getString('readerSettings.volumeButtonOffset')}
               mode="outlined"
               keyboardType="numeric"
               defaultValue={defaultTo(
-                volumeButtonsOffset,
-                Math.round(screenHeight * 0.75),
+                volumeButtonsOffset
+                  ? Math.round(volumeButtonsOffset / screenHeight)
+                  : null,
+                0.75,
               ).toString()}
               onChangeText={text => {
-                if (text) {
+                if (!isNaN(Number(text))) {
                   setChapterGeneralSettings({
-                    volumeButtonsOffset: Number(text),
+                    volumeButtonsOffset: Math.round(
+                      Number(text) * screenHeight,
+                    ),
                   });
                 }
               }}
@@ -68,7 +75,9 @@ const NavigationTab: React.FC = () => {
         )}
         <SettingSwitch
           label={getString('readerScreen.bottomSheet.verticalSeekbar')}
-          description={getString('readerSettings.verticalSeekbarDesc')}
+          description={getString(
+            'readerScreen.bottomSheet.verticalSeekbarDescription',
+          )}
           value={verticalSeekbar}
           onPress={() =>
             setChapterGeneralSettings({ verticalSeekbar: !verticalSeekbar })
@@ -77,6 +86,9 @@ const NavigationTab: React.FC = () => {
         />
         <SettingSwitch
           label={getString('readerScreen.bottomSheet.swipeGestures')}
+          description={getString(
+            'readerScreen.bottomSheet.swipeGesturesDescription',
+          )}
           value={swipeGestures}
           onPress={() =>
             setChapterGeneralSettings({ swipeGestures: !swipeGestures })
@@ -85,6 +97,9 @@ const NavigationTab: React.FC = () => {
         />
         <SettingSwitch
           label={getString('readerScreen.bottomSheet.tapToScroll')}
+          description={getString(
+            'readerScreen.bottomSheet.tapToScrollDescription',
+          )}
           value={tapToScroll}
           onPress={() =>
             setChapterGeneralSettings({ tapToScroll: !tapToScroll })
@@ -97,6 +112,9 @@ const NavigationTab: React.FC = () => {
         <List.SubHeader theme={theme}>Reading Mode</List.SubHeader>
         <SettingSwitch
           label={getString('readerScreen.bottomSheet.pageReader')}
+          description={getString(
+            'readerScreen.bottomSheet.pageReaderDescription',
+          )}
           value={pageReader}
           onPress={() => setChapterGeneralSettings({ pageReader: !pageReader })}
           theme={theme}
@@ -109,6 +127,9 @@ const NavigationTab: React.FC = () => {
         </List.SubHeader>
         <SettingSwitch
           label={getString('readerScreen.bottomSheet.autoscroll')}
+          description={getString(
+            'readerScreen.bottomSheet.autoscrollDescription',
+          )}
           value={autoScroll}
           onPress={() => setChapterGeneralSettings({ autoScroll: !autoScroll })}
           theme={theme}

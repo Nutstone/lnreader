@@ -1,13 +1,10 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 
 import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import {
-  changeNavigationBarColor,
-  setStatusBarColor,
-} from '@theme/utils/setBarColor';
-import { useAppSettings, usePlugins, useTheme } from '@hooks/persisted';
+import { setStatusBarColor } from '@theme/utils/setBarColor';
+import { useAppSettings, usePluginActions, useTheme } from '@hooks/persisted';
 import { useGithubUpdateChecker } from '@hooks/common/useGithubUpdateChecker';
 
 /**
@@ -30,12 +27,12 @@ import MalTopNovels from '../screens/browse/discover/MalTopNovels';
 import AniListTopNovels from '../screens/browse/discover/AniListTopNovels';
 import NewUpdateDialog from '../components/NewUpdateDialog';
 import BrowseSettings from '../screens/browse/settings/BrowseSettings';
+import PluginDetailsScreen from '../screens/browse/PluginDetailsScreen';
 import WebviewScreen from '@screens/WebviewScreen/WebviewScreen';
 import { RootStackParamList } from './types';
-import Color from 'color';
 import { useMMKVBoolean } from 'react-native-mmkv';
 import OnboardingScreen from '@screens/onboarding/OnboardingScreen';
-import ServiceManager from '@services/ServiceManager';
+import { backgroundTasks } from '@services/backgroundTasks';
 import ReaderStack from './ReaderStack';
 import { LibraryContextProvider } from '@components/Context/LibraryContext';
 import { UpdateContextProvider } from '@components/Context/UpdateContext';
@@ -44,13 +41,12 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const MainNavigator = () => {
   const theme = useTheme();
   const { updateLibraryOnLaunch } = useAppSettings();
-  const { refreshPlugins } = usePlugins();
+  const { refreshPlugins } = usePluginActions();
   const [isOnboarded] = useMMKVBoolean('IS_ONBOARDED');
 
   useEffect(() => {
     const timer = setTimeout(async () => {
       setStatusBarColor(theme);
-      changeNavigationBarColor(Color(theme.surface2).hex(), theme.isDark);
     }, 500);
 
     return () => {
@@ -60,7 +56,7 @@ const MainNavigator = () => {
 
   useEffect(() => {
     if (updateLibraryOnLaunch) {
-      ServiceManager.manager.addTask({ name: 'UPDATE_LIBRARY' });
+      backgroundTasks.enqueue({ name: 'UPDATE_LIBRARY' });
     }
     if (isOnboarded) {
       // hack this helps app has enough time to initialize database;
@@ -108,7 +104,13 @@ const MainNavigator = () => {
       <LibraryContextProvider>
         <UpdateContextProvider>
           {isNewVersion && <NewUpdateDialog newVersion={latestRelease} />}
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Navigator
+            screenOptions={{
+              animation: 'none',
+              contentStyle: { backgroundColor: theme.background },
+              headerShown: false,
+            }}
+          >
             <Stack.Screen name="BottomNavigator" component={BottomNavigator} />
             <Stack.Screen name="ReaderStack" component={ReaderStack} />
             <Stack.Screen name="MoreStack" component={MoreStack} />
@@ -116,6 +118,10 @@ const MainNavigator = () => {
             <Stack.Screen name="BrowseMal" component={MalTopNovels} />
             <Stack.Screen name="BrowseAL" component={AniListTopNovels} />
             <Stack.Screen name="BrowseSettings" component={BrowseSettings} />
+            <Stack.Screen
+              name="PluginDetails"
+              component={PluginDetailsScreen}
+            />
             <Stack.Screen
               name="GlobalSearchScreen"
               component={GlobalSearchScreen}

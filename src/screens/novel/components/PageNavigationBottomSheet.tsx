@@ -1,14 +1,18 @@
 import React from 'react';
 import { StyleSheet, View, Pressable, Text } from 'react-native';
-import { BottomSheetScrollView, BottomSheetView } from '@gorhom/bottom-sheet';
-import { LegendList, LegendListRenderItemProps } from '@legendapp/list';
+import {
+  BottomSheetView,
+  useBottomSheetScrollableCreator,
+} from '@gorhom/bottom-sheet';
+import {
+  LegendList,
+  LegendListRenderItemProps,
+} from '@legendapp/list/react-native';
 import color from 'color';
 
 import BottomSheet from '@components/BottomSheet/BottomSheet';
 import { ThemeColors } from '@theme/types';
 import { BottomSheetModalMethods } from '@gorhom/bottom-sheet/lib/typescript/types';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { overlay } from 'react-native-paper';
 
 interface PageNavigationBottomSheetProps {
   bottomSheetRef: React.RefObject<BottomSheetModalMethods | null>;
@@ -25,8 +29,7 @@ export default function PageNavigationBottomSheet({
   pageIndex,
   openPage,
 }: PageNavigationBottomSheetProps) {
-  const insets = useSafeAreaInsets();
-  const { left, right } = insets;
+  const BottomSheetLegendListScrollable = useBottomSheetScrollableCreator();
 
   const renderItem = ({ item, index }: LegendListRenderItemProps<string>) => {
     const isSelected = index === pageIndex;
@@ -74,30 +77,18 @@ export default function PageNavigationBottomSheet({
     <BottomSheet
       bottomSheetRef={bottomSheetRef}
       snapPoints={[Math.min(400, pages.length * 56 + 100)]}
-      backgroundStyle={styles.transparent}
     >
-      <BottomSheetView
-        style={[
-          styles.contentContainer,
-          {
-            backgroundColor: overlay(2, theme.surface),
-            marginStart: left,
-            marginEnd: right,
-            paddingBottom: insets.bottom,
-          },
-        ]}
-      >
-        <BottomSheetScrollView>
-          <LegendList
-            data={pages}
-            recycleItems
-            extraData={pageIndex}
-            renderItem={renderItem}
-            keyExtractor={(item, index) => `page_${index}_${item}`}
-            estimatedItemSize={56}
-            contentContainerStyle={styles.listContent}
-          />
-        </BottomSheetScrollView>
+      <BottomSheetView style={styles.contentContainer}>
+        <LegendList
+          data={pages}
+          recycleItems
+          extraData={pageIndex}
+          renderItem={renderItem}
+          keyExtractor={(item, index) => `page_${index}_${item}`}
+          estimatedItemSize={56}
+          contentContainerStyle={styles.listContent}
+          renderScrollComponent={BottomSheetLegendListScrollable}
+        />
       </BottomSheetView>
     </BottomSheet>
   );
@@ -105,8 +96,6 @@ export default function PageNavigationBottomSheet({
 
 const styles = StyleSheet.create({
   contentContainer: {
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
     flex: 1,
     maxHeight: 400,
   },
@@ -136,8 +125,5 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     height: 20,
     width: 3,
-  },
-  transparent: {
-    backgroundColor: 'transparent',
   },
 });

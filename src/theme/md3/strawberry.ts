@@ -1,8 +1,7 @@
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 
 export const strawberryDaiquiriTheme = {
   light: {
-    id: 16,
     name: getString('appearanceScreen.theme.strawberry'),
     isDark: false,
     primary: 'rgb(182, 30, 64)',
@@ -39,7 +38,6 @@ export const strawberryDaiquiriTheme = {
     backdrop: 'rgba(59, 45, 46, 0.4)',
   },
   dark: {
-    id: 17,
     name: getString('appearanceScreen.theme.strawberry'),
     isDark: true,
     primary: 'rgb(255, 178, 184)',

@@ -1,5 +1,11 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  GestureResponderEvent,
+} from 'react-native';
 import MaterialCommunityIcons from '@react-native-vector-icons/material-design-icons';
 import { ThemeColors } from '@theme/types';
 
@@ -12,9 +18,10 @@ export interface SegmentedControlOption<T extends string = string> {
 export interface SegmentedControlProps<T extends string = string> {
   options: SegmentedControlOption<T>[];
   value: T;
-  onChange: (value: T) => void;
+  onChange: (value: T, event: GestureResponderEvent) => void;
   theme: ThemeColors;
   showCheckIcon?: boolean;
+  showLabels?: boolean;
 }
 
 export function SegmentedControl<T extends string = string>({
@@ -23,6 +30,7 @@ export function SegmentedControl<T extends string = string>({
   onChange,
   theme,
   showCheckIcon = true,
+  showLabels = true,
 }: SegmentedControlProps<T>) {
   return (
     <View style={styles.container}>
@@ -51,8 +59,11 @@ export function SegmentedControl<T extends string = string>({
         return (
           <View key={option.value} style={buttonStyles}>
             <Pressable
+              accessibilityLabel={option.label}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: isSelected }}
               style={styles.segmentPressable}
-              onPress={() => onChange(option.value)}
+              onPress={e => onChange(option.value, e)}
               android_ripple={{
                 color: theme.rippleColor,
                 borderless: false,
@@ -66,17 +77,19 @@ export function SegmentedControl<T extends string = string>({
                   style={styles.checkIcon}
                 />
               )}
-              {option.icon && !isSelected && (
+              {option.icon && (!isSelected || !showCheckIcon) && (
                 <MaterialCommunityIcons
                   name={option.icon}
                   size={18}
                   color={textColor}
-                  style={styles.icon}
+                  style={showLabels ? styles.icon : undefined}
                 />
               )}
-              <Text style={[styles.segmentText, { color: textColor }]}>
-                {option.label}
-              </Text>
+              {showLabels ? (
+                <Text style={[styles.segmentText, { color: textColor }]}>
+                  {option.label}
+                </Text>
+              ) : null}
             </Pressable>
           </View>
         );

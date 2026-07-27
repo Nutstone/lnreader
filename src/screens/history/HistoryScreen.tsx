@@ -1,7 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, SectionList, Text } from 'react-native';
-import dayjs from 'dayjs';
-import { Portal } from 'react-native-paper';
 
 import {
   EmptyView,
@@ -12,37 +10,47 @@ import {
 import HistoryCard from './components/HistoryCard/HistoryCard';
 
 import { useSearch, useBoolean } from '@hooks';
-import { useTheme, useHistory } from '@hooks/persisted';
+import { useAppSettings, useTheme, useHistory } from '@hooks/persisted';
 
 import { convertDateToISOString } from '@database/utils/convertDateToISOString';
 
 import { History } from '@database/types';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import ClearHistoryDialog from './components/ClearHistoryDialog';
 import HistorySkeletonLoading from './components/HistorySkeletonLoading';
+import RemoveHistoryDialog from './components/RemoveHistoryDialog';
 import { HistoryScreenProps } from '@navigators/types';
+import { formatDate } from '@utils/dateFormat';
 
 const HistoryScreen = ({ navigation }: HistoryScreenProps) => {
   const theme = useTheme();
+  const { dateFormat = 'default', relativeTimestamps = true } =
+    useAppSettings();
   const {
     isLoading,
     history,
     clearAllHistory,
     removeChapterFromHistory,
+    removeNovelFromHistory,
     error,
   } = useHistory();
 
   const { searchText, setSearchText, clearSearchbar } = useSearch();
-  const [searchResults, setSearchResults] = useState<History[]>([]);
+  const [historyToRemove, setHistoryToRemove] = useState<History>();
 
   const onChangeText = (text: string) => {
     setSearchText(text);
-    setSearchResults(
-      history.filter(item =>
-        item.novelName.toLowerCase().includes(text.toLowerCase()),
-      ),
-    );
   };
+
+  const displayedHistory = useMemo(
+    () =>
+      searchText
+        ? history.filter(item =>
+            item.novelName.toLowerCase().includes(searchText.toLowerCase()),
+          )
+        : history,
+    [history, searchText],
+  );
 
   const groupHistoryByDate = (rawHistory: History[]) => {
     const dateGroups = rawHistory.reduce<Record<string, History[]>>(
@@ -76,6 +84,16 @@ const HistoryScreen = ({ navigation }: HistoryScreenProps) => {
     setTrue: openClearHistoryDialog,
     setFalse: closeClearHistoryDialog,
   } = useBoolean();
+
+  const removeHistory = async (resetAllChapters: boolean) => {
+    if (!historyToRemove) return;
+
+    if (resetAllChapters) {
+      await removeNovelFromHistory(historyToRemove.novelId);
+    } else {
+      await removeChapterFromHistory(historyToRemove.id);
+    }
+  };
 
   useEffect(
     () =>
@@ -122,18 +140,15 @@ const HistoryScreen = ({ navigation }: HistoryScreenProps) => {
         <>
           <SectionList
             contentContainerStyle={styles.listContainer}
-            sections={groupHistoryByDate(searchText ? searchResults : history)}
+            sections={groupHistoryByDate(displayedHistory)}
             keyExtractor={(item, index) => 'history' + index}
             renderSectionHeader={({ section: { date } }) => (
               <Text style={[styles.dateHeader, { color: theme.onSurface }]}>
-                {dayjs(date).calendar()}
+                {formatDate(date, dateFormat, relativeTimestamps)}
               </Text>
             )}
             renderItem={({ item }) => (
-              <HistoryCard
-                history={item}
-                handleRemoveFromHistory={removeChapterFromHistory}
-              />
+              <HistoryCard history={item} onRemove={setHistoryToRemove} />
             )}
             ListEmptyComponent={
               <EmptyView
@@ -143,14 +158,16 @@ const HistoryScreen = ({ navigation }: HistoryScreenProps) => {
               />
             }
           />
-          <Portal>
-            <ClearHistoryDialog
-              visible={clearHistoryDialogVisible}
-              onSubmit={clearAllHistory}
-              onDismiss={closeClearHistoryDialog}
-              theme={theme}
-            />
-          </Portal>
+          <ClearHistoryDialog
+            visible={clearHistoryDialogVisible}
+            onSubmit={clearAllHistory}
+            onDismiss={closeClearHistoryDialog}
+          />
+          <RemoveHistoryDialog
+            visible={Boolean(historyToRemove)}
+            onSubmit={removeHistory}
+            onDismiss={() => setHistoryToRemove(undefined)}
+          />
         </>
       )}
     </SafeAreaView>

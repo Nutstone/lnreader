@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { getCategoriesFromDb } from '@database/queries/CategoryQueries';
 import { Category } from '@database/types';
@@ -8,7 +9,7 @@ const useCategories = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState<string>();
 
-  const getCategories = async () => {
+  const getCategories = useCallback(async () => {
     try {
       const res = await getCategoriesFromDb();
       setCategories(res);
@@ -19,11 +20,14 @@ const useCategories = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    getCategories();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Refresh after returning from the category editor.
+      getCategories();
+    }, [getCategories]),
+  );
 
   return {
     isLoading,

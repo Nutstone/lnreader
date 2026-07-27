@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import {
   useMMKVBoolean,
   useMMKVNumber,
@@ -11,7 +11,14 @@ import { ThemePicker } from '@components/ThemePicker/ThemePicker';
 import { ThemeColors } from '@theme/types';
 import { useTheme } from '@hooks/persisted';
 import { darkThemes, lightThemes } from '@theme/md3';
-import { getString } from '@strings/translations';
+import {
+  getSystemDynamicTheme,
+  isDynamicThemeAvailable,
+  toDynamicThemeColors,
+} from '@theme/dynamic';
+import { getString } from '@i18n/translations';
+import { LegendList } from '@legendapp/list/react-native';
+import Switch from '@components/Switch/Switch';
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -23,39 +30,23 @@ const AmoledToggle: React.FC<AmoledToggleProps> = ({ theme }) => {
   const [isAmoledBlack = false, setAmoledBlack] =
     useMMKVBoolean('AMOLED_BLACK');
 
-  if (!theme.isDark) {
-    return null;
-  }
+  const toggle = () => setAmoledBlack(!isAmoledBlack);
+
+  if (!theme.isDark) return null;
 
   return (
-    <View style={styles.amoledContainer}>
+    <Pressable
+      style={[
+        styles.amoledContainer,
+        { backgroundColor: theme.surfaceVariant },
+      ]}
+      onPress={toggle}
+    >
       <Text style={[styles.amoledLabel, { color: theme.onSurface }]}>
         {getString('appearanceScreen.pureBlackDarkMode')}
       </Text>
-      <Pressable
-        onPress={() => setAmoledBlack(!isAmoledBlack)}
-        style={[
-          styles.toggle,
-          {
-            backgroundColor: isAmoledBlack
-              ? theme.primary
-              : theme.surfaceVariant,
-          },
-        ]}
-      >
-        <View
-          style={[
-            styles.toggleThumb,
-            isAmoledBlack && styles.toggleThumbActive,
-            {
-              backgroundColor: isAmoledBlack
-                ? theme.onPrimary
-                : theme.onSurfaceVariant,
-            },
-          ]}
-        />
-      </Pressable>
-    </View>
+      <Switch value={isAmoledBlack} onValueChange={toggle} />
+    </Pressable>
   );
 };
 
@@ -67,8 +58,16 @@ export default function ThemeSelectionStep() {
   const currentMode = themeMode as ThemeMode;
 
   const availableThemes = useMemo(() => {
-    return theme.isDark ? darkThemes : lightThemes;
-  }, [theme.isDark]);
+    const themes = theme.isDark ? darkThemes : lightThemes;
+    if (!isDynamicThemeAvailable) {
+      return themes;
+    }
+
+    return [
+      toDynamicThemeColors(getSystemDynamicTheme(), theme.isDark),
+      ...themes,
+    ];
+  }, [theme]);
 
   const themeModeOptions: SegmentedControlOption<ThemeMode>[] = useMemo(
     () => [
@@ -90,20 +89,10 @@ export default function ThemeSelectionStep() {
 
   const handleModeChange = (mode: ThemeMode) => {
     setThemeMode(mode);
-
-    if (mode !== 'system') {
-      const themes = mode === 'dark' ? darkThemes : lightThemes;
-      const currentThemeInMode = themes.find(t => t.id === theme.id);
-
-      if (!currentThemeInMode) {
-        setThemeId(themes[0].id);
-      }
-    }
   };
 
   const handleThemeSelect = (selectedTheme: ThemeColors) => {
     setThemeId(selectedTheme.id);
-    setThemeMode(selectedTheme.isDark ? 'dark' : 'light');
   };
 
   return (
@@ -117,24 +106,23 @@ export default function ThemeSelectionStep() {
           theme={theme}
         />
       </View>
-
       {/* Theme List */}
-      <ScrollView
-        horizontal
+      <LegendList
+        numColumns={3}
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.themeScrollContent}
-      >
-        {availableThemes.map(item => (
-          <View key={item.id} style={styles.themeItem}>
+        data={availableThemes}
+        extraData={theme}
+        keyExtractor={item => 'theme-' + item.id}
+        renderItem={({ item }) => (
+          <View>
             <ThemePicker
               currentTheme={theme}
               theme={item}
               onPress={() => handleThemeSelect(item)}
             />
           </View>
-        ))}
-      </ScrollView>
-
+        )}
+      />
       {/* AMOLED Toggle */}
       <AmoledToggle theme={theme} />
     </View>
@@ -148,13 +136,6 @@ const styles = StyleSheet.create({
   },
   segmentedControlContainer: {
     marginBottom: 24,
-  },
-  themeScrollContent: {
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-  },
-  themeItem: {
-    marginHorizontal: 8,
   },
   amoledContainer: {
     flexDirection: 'row',

@@ -7,7 +7,8 @@ import {
 import { ThemeColors } from '@theme/types';
 import { ChapterInfo } from '@database/types';
 import MaterialCommunityIcons from '@react-native-vector-icons/material-design-icons';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
+import { DateFormat, formatDate } from '@utils/dateFormat';
 
 interface ChapterItemProps {
   chapter: ChapterInfo;
@@ -15,7 +16,7 @@ interface ChapterItemProps {
   isBookmarked?: boolean;
   isSelected?: boolean;
   isLocal: boolean;
-  isUpdateCard?: boolean;
+  variant?: 'default' | 'grouped';
   theme: ThemeColors;
   showChapterTitles: boolean;
   novelName: string;
@@ -24,6 +25,8 @@ interface ChapterItemProps {
   onDownloadChapter: (chapter: ChapterInfo) => void;
   onSelectPress: (chapter: ChapterInfo) => void;
   onSelectLongPress?: (chapter: ChapterInfo) => void;
+  dateFormat?: DateFormat;
+  relativeTimestamps?: boolean;
 }
 
 const ChapterItem: React.FC<ChapterItemProps> = ({
@@ -32,7 +35,7 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
   isBookmarked,
   isSelected,
   isLocal,
-  isUpdateCard,
+  variant = 'default',
   theme,
   showChapterTitles,
   novelName,
@@ -41,9 +44,12 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
   onDownloadChapter,
   onSelectPress,
   onSelectLongPress,
+  dateFormat = 'default',
+  relativeTimestamps = true,
 }) => {
   const { id, name, unread, releaseTime, bookmark, chapterNumber, progress } =
     chapter;
+  const isGrouped = variant === 'grouped';
 
   isBookmarked ??= bookmark ?? false;
 
@@ -93,6 +99,16 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
     [theme.rippleColor],
   );
 
+  const releaseTimeStyle = {
+    color: theme.outline,
+    marginStart: chapter.releaseTime || chapter.scanlator ? 5 : 0,
+  } as const;
+  function parseTime(time?: string | Date | null) {
+    if (!time) return undefined;
+    return formatDate(time, dateFormat, relativeTimestamps);
+  }
+  const parsedTime = parseTime(releaseTime);
+
   return (
     <View key={'chapterItem' + id}>
       <Pressable
@@ -105,10 +121,10 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
           {left}
           {isBookmarked ? <ChapterBookmarkButton theme={theme} /> : null}
           <View style={styles.flex1}>
-            {isUpdateCard ? (
+            {isGrouped ? (
               <Text
                 style={[
-                  styles.updateCardName,
+                  styles.groupedChapterNovelName,
                   { color: unread ? theme.onSurface : theme.outline },
                 ]}
                 numberOfLines={1}
@@ -128,7 +144,7 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
 
               <Text
                 style={[
-                  isUpdateCard ? styles.textSmall : styles.textNormal,
+                  isGrouped ? styles.textSmall : styles.textNormal,
                   { color: titleColor },
                   styles.flex1,
                 ]}
@@ -143,27 +159,34 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
               </Text>
             </View>
             <View style={styles.metaRow}>
-              {releaseTime && !isUpdateCard ? (
+              {parsedTime && !isGrouped ? (
                 <Text
-                  style={[{ color: releaseColor, marginTop: 4 }, styles.text]}
+                  style={[{ color: releaseColor }, styles.mt4, styles.text]}
                   numberOfLines={1}
                 >
-                  {releaseTime}
+                  {parsedTime}
                 </Text>
               ) : null}
-              {!isUpdateCard && progress && progress > 0 && chapter.unread ? (
+              {chapter.scanlator && !isGrouped ? (
                 <Text
                   style={[
+                    { color: releaseColor },
+                    styles.mt4,
                     styles.text,
-                    {
-                      color: theme.outline,
-                      marginStart: chapter.releaseTime ? 5 : 0,
-                      marginTop: 4,
-                    },
+                    { marginStart: parsedTime ? 5 : 0 },
                   ]}
                   numberOfLines={1}
                 >
-                  {chapter.releaseTime ? '•  ' : null}
+                  {parsedTime ? '•  ' : null}
+                  {chapter.scanlator}
+                </Text>
+              ) : null}
+              {!isGrouped && progress && progress > 0 && chapter.unread ? (
+                <Text
+                  style={[styles.text, styles.mt4, releaseTimeStyle]}
+                  numberOfLines={1}
+                >
+                  {chapter.releaseTime || chapter.scanlator ? '•  ' : null}
                   {getString('novelScreen.progress', { progress })}
                 </Text>
               ) : null}
@@ -223,7 +246,10 @@ const styles = StyleSheet.create({
   unreadIcon: {
     marginEnd: 4,
   },
-  updateCardName: {
+  groupedChapterNovelName: {
     fontSize: 14,
+  },
+  mt4: {
+    marginTop: 4,
   },
 });

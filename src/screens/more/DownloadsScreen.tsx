@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FlatList, StyleSheet } from 'react-native';
 
 import { Appbar as MaterialAppbar } from 'react-native-paper';
@@ -15,35 +15,34 @@ import { useTheme } from '@hooks/persisted';
 
 import RemoveDownloadsDialog from './components/RemoveDownloadsDialog';
 import UpdatesSkeletonLoading from '@screens/updates/components/UpdatesSkeletonLoading';
-import UpdateNovelCard from '@screens/updates/components/UpdateNovelCard';
-import { getString } from '@strings/translations';
+import DownloadedNovelChapterGroup from './components/DownloadedNovelChapterGroup';
+import { getString } from '@i18n/translations';
 import { DownloadsScreenProps } from '@navigators/types';
 import { DownloadedChapter } from '@database/types';
 import { showToast } from '@utils/showToast';
-import dayjs from 'dayjs';
 import { parseChapterNumber } from '@utils/parseChapterNumber';
 
 type DownloadGroup = Record<number, DownloadedChapter[]>;
+
+const groupChaptersByNovel = (
+  chapters: DownloadedChapter[],
+): DownloadedChapter[][] => {
+  const novelGroups = chapters.reduce((groups, chapter) => {
+    if (!groups[chapter.novelId]) {
+      groups[chapter.novelId] = [];
+    }
+
+    groups[chapter.novelId].push(chapter);
+    return groups;
+  }, {} as DownloadGroup);
+
+  return Object.values(novelGroups);
+};
 
 const Downloads = ({ navigation }: DownloadsScreenProps) => {
   const theme = useTheme();
   const [loading, setLoading] = useState(true);
   const [chapters, setChapters] = useState<DownloadedChapter[]>([]);
-  const groupUpdatesByDate = (
-    localChapters: DownloadedChapter[],
-  ): DownloadedChapter[][] => {
-    const dateGroups = localChapters.reduce((groups, item) => {
-      const novelId = item.novelId;
-      if (!groups[novelId]) {
-        groups[novelId] = [];
-      }
-
-      groups[novelId].push(item);
-
-      return groups;
-    }, {} as DownloadGroup);
-    return Object.values(dateGroups);
-  };
 
   /**
    * Confirm Clear downloads Dialog
@@ -52,38 +51,28 @@ const Downloads = ({ navigation }: DownloadsScreenProps) => {
   const showDialog = () => setVisible(true);
   const hideDialog = () => setVisible(false);
 
-  const getChapters = async () => {
+  const getChapters = useCallback(async () => {
     const res = await getDownloadedChapters();
     setChapters(
       res.map(download => {
-        const parsedTime = dayjs(download.releaseTime);
         return {
           ...download,
-          releaseTime: parsedTime.isValid()
-            ? parsedTime.format('LL')
-            : download.releaseTime,
           chapterNumber: download.chapterNumber
             ? download.chapterNumber
             : parseChapterNumber(download.novelName, download.name),
         };
       }),
     );
-  };
-
-  const ListEmptyComponent = useCallback(
-    () =>
-      !loading ? (
-        <EmptyView
-          icon="(˘･_･˘)"
-          description={getString('downloadScreen.noDownloads')}
-        />
-      ) : null,
-    [loading],
-  );
+  }, []);
 
   useEffect(() => {
-    getChapters().finally(() => setLoading(false));
-  }, []);
+    const timer = setTimeout(
+      () => void getChapters().finally(() => setLoading(false)),
+      0,
+    );
+
+    return () => clearTimeout(timer);
+  }, [getChapters]);
 
   return (
     <SafeAreaView excludeTop>
@@ -101,21 +90,23 @@ const Downloads = ({ navigation }: DownloadsScreenProps) => {
         ) : null}
       </Appbar>
 
-      <List.InfoItem title={getString('downloadScreen.dbInfo')} theme={theme} />
+      <List.InfoItem
+        title={getString('downloadScreen.storageInfo')}
+        theme={theme}
+      />
       {loading ? (
         <UpdatesSkeletonLoading theme={theme} />
       ) : (
         <FlatList
           contentContainerStyle={styles.flatList}
-          data={groupUpdatesByDate(chapters)}
-          keyExtractor={(item, index) => 'downloadGroup' + index}
+          data={groupChaptersByNovel(chapters)}
+          keyExtractor={item => `downloadGroup-${item[0]?.novelId}`}
           renderItem={({ item }) => {
             return (
-              <UpdateNovelCard
-                onlyDownloadedChapters
-                chapterList={item}
-                descriptionText={getString('downloadScreen.downloadsLower')}
-                deleteChapter={chapter => {
+              <DownloadedNovelChapterGroup
+                chapters={item}
+                chapterCountLabel={getString('downloadScreen.downloadsLower')}
+                onDeleteChapter={chapter => {
                   deleteChapter(
                     chapter.pluginId,
                     chapter.novelId,
@@ -128,7 +119,12 @@ const Downloads = ({ navigation }: DownloadsScreenProps) => {
               />
             );
           }}
-          ListEmptyComponent={<ListEmptyComponent />}
+          ListEmptyComponent={
+            <EmptyView
+              icon="(˘･_･˘)"
+              description={getString('downloadScreen.noDownloads')}
+            />
+          }
         />
       )}
       <RemoveDownloadsDialog
@@ -139,7 +135,6 @@ const Downloads = ({ navigation }: DownloadsScreenProps) => {
           setChapters([]);
           hideDialog();
         }}
-        theme={theme}
       />
     </SafeAreaView>
   );

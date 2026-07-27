@@ -2,10 +2,10 @@ const ReactCompilerConfig = {
   target: '19',
 };
 
-module.exports = function (api) {
+export default function (api) {
   api.cache(true);
   return {
-    presets: ['module:@react-native/babel-preset'],
+    presets: ['babel-preset-expo'],
     plugins: [
       'module:@babel/plugin-transform-export-namespace-from',
       ['babel-plugin-react-compiler', ReactCompilerConfig],
@@ -17,7 +17,7 @@ module.exports = function (api) {
             '@database': './src/database',
             '@hooks': './src/hooks',
             '@screens': './src/screens',
-            '@strings': './strings',
+            '@i18n': './src/i18n',
             '@services': './src/services',
             '@plugins': './src/plugins',
             '@utils': './src/utils',
@@ -26,21 +26,16 @@ module.exports = function (api) {
             '@api': './src/api',
             '@type': './src/type',
             '@specs': './specs',
-            '@test-utils': './__tests-modules__/test-utils',
+            '@test-utils': './test/test-utils',
+            '@env': './src/generated/build-info',
+            '@modules/nitro-tts': './modules/nitro-tts/src/index',
+            '@modules': './modules',
             'react-native-vector-icons/MaterialCommunityIcons':
               '@react-native-vector-icons/material-design-icons',
           },
         },
       ],
       'react-native-worklets/plugin',
-      [
-        'module:react-native-dotenv',
-        {
-          envName: 'APP_ENV',
-          moduleName: '@env',
-          path: '.env',
-        },
-      ],
       [
         'inline-import',
         {
@@ -49,4 +44,4 @@ module.exports = function (api) {
       ],
     ],
   };
-};
+}

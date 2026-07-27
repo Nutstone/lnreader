@@ -1,4 +1,4 @@
-import NativeFile from '@specs/NativeFile';
+import NativeFile from '@modules/native-file';
 import { AUDIOBOOK_STORAGE } from '@utils/Storages';
 import {
   AudiobookConfig,
@@ -187,22 +187,22 @@ export class AudiobookPipeline {
   }
 
   async clearCache(): Promise<void> {
-    if (NativeFile.exists(this.novelDir)) {
-      NativeFile.unlink(this.novelDir);
+    if (await NativeFile.exists(this.novelDir)) {
+      await NativeFile.unlink(this.novelDir);
     }
   }
 
   // ── File Helpers ────────────────────────────────────────────
 
   private async ensureDir(path: string): Promise<void> {
-    if (!NativeFile.exists(path)) {
-      NativeFile.mkdir(path);
+    if (!(await NativeFile.exists(path))) {
+      await NativeFile.mkdir(path);
     }
   }
 
   private async writeJSON(path: string, data: unknown): Promise<void> {
     try {
-      NativeFile.writeFile(path, JSON.stringify(data, null, 2));
+      await NativeFile.writeFile(path, JSON.stringify(data, null, 2));
     } catch (error) {
       throw new Error(
         `Failed to write cache file ${path}: ${error instanceof Error ? error.message : String(error)}`,
@@ -212,20 +212,16 @@ export class AudiobookPipeline {
 
   private async readJSON<T>(path: string): Promise<T | null> {
     try {
-      if (!NativeFile.exists(path)) {
+      if (!(await NativeFile.exists(path))) {
         return null;
       }
-      const content = NativeFile.readFile(path);
+      const content = await NativeFile.readFile(path);
       return JSON.parse(content) as T;
     } catch {
       // Corrupt cache file — delete it and return null so it gets regenerated
-      try {
-        if (NativeFile.exists(path)) {
-          NativeFile.unlink(path);
-        }
-      } catch {
+      await NativeFile.unlink(path).catch(() => {
         // Ignore cleanup errors
-      }
+      });
       return null;
     }
   }

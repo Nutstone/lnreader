@@ -4,12 +4,11 @@ import {
   UseLibraryReturnType,
 } from '@screens/library/hooks/useLibrary';
 import { useLibrarySettings } from '@hooks/persisted';
-import { LibrarySettings } from '@hooks/persisted/useSettings';
 
 // type Library = Category & { novels: LibraryNovelInfo[] };
 
 type LibraryContextType = UseLibraryReturnType & {
-  settings: LibrarySettings;
+  settings: ReturnType<typeof useLibrarySettings>;
 };
 
 const defaultValue = {} as LibraryContextType;

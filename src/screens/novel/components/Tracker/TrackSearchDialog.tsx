@@ -1,12 +1,17 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
-import { ScrollView } from 'react-native-gesture-handler';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TextInputSubmitEditingEvent,
+} from 'react-native';
 import { TextInput, TouchableRipple } from 'react-native-paper';
 import MaterialCommunityIcons from '@react-native-vector-icons/material-design-icons';
+import { FlashList } from '@shopify/flash-list';
 
-import { Button, Modal } from '@components';
+import { Dialog, NovelCoverImage } from '@components';
 import { getTracker, useTheme } from '@hooks/persisted';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { SearchResult } from '@services/Trackers';
 import { TrackSearchDialogProps } from './types';
 import { showToast } from '@utils/showToast';
@@ -20,41 +25,128 @@ const TrackSearchDialog: React.FC<TrackSearchDialogProps> = ({
   novelName,
 }) => {
   const theme = useTheme();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searchText, setSearchText] = useState(novelName);
+  const [searchTextOverride, setSearchTextOverride] = useState<string>();
   const [selectedNovel, setSelectedNovel] = useState<SearchResult>();
+  const latestRequestId = useRef(0);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchText = searchTextOverride ?? novelName;
 
-  const getSearchResults = useCallback(async () => {
-    setLoading(true);
-    try {
-      const trackerObj = getTracker(tracker.name);
-      const results = await trackerObj.handleSearch(searchText, tracker.auth);
-      setSearchResults(results);
-    } catch (error) {
-      showToast(
-        `Failed to fetch search results from ${tracker.name}: ${getErrorMessage(
-          error,
-        )}`,
-      );
-      setSearchResults([]);
-    } finally {
-      setLoading(false);
+  const getSearchResults = useCallback(
+    async (query: string) => {
+      const normalizedQuery = query.trim();
+      const requestId = ++latestRequestId.current;
+
+      if (!normalizedQuery) {
+        setLoading(false);
+        setSearchResults([]);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const trackerObj = getTracker(tracker.name);
+        const results = await trackerObj.handleSearch(
+          normalizedQuery,
+          tracker.auth,
+        );
+
+        if (requestId === latestRequestId.current) {
+          setSearchResults(results);
+        }
+      } catch (error) {
+        if (requestId === latestRequestId.current) {
+          showToast(
+            `Failed to fetch search results from ${
+              tracker.name
+            }: ${getErrorMessage(error)}`,
+          );
+          setSearchResults([]);
+        }
+      } finally {
+        if (requestId === latestRequestId.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [tracker.auth, tracker.name],
+  );
+
+  const cancelScheduledSearch = useCallback(() => {
+    if (searchTimer.current) {
+      clearTimeout(searchTimer.current);
+      searchTimer.current = null;
     }
-  }, [searchText, tracker.auth, tracker.name]);
+  }, []);
+
+  const scheduleSearch = useCallback(
+    (query: string) => {
+      cancelScheduledSearch();
+      latestRequestId.current += 1;
+      searchTimer.current = setTimeout(() => {
+        void getSearchResults(query);
+      }, 350);
+    },
+    [cancelScheduledSearch, getSearchResults],
+  );
+
+  useEffect(
+    () => () => {
+      cancelScheduledSearch();
+      latestRequestId.current += 1;
+    },
+    [cancelScheduledSearch],
+  );
 
   useEffect(() => {
-    if (visible) {
-      getSearchResults();
+    if (!visible) {
+      cancelScheduledSearch();
+      latestRequestId.current += 1;
+      return;
     }
-  }, [getSearchResults, visible]);
+
+    cancelScheduledSearch();
+    searchTimer.current = setTimeout(() => {
+      void getSearchResults(novelName);
+    }, 0);
+  }, [cancelScheduledSearch, getSearchResults, novelName, visible]);
+
+  const handleSearchTextChange = useCallback(
+    (value: string) => {
+      setSearchTextOverride(value);
+      setSelectedNovel(undefined);
+      scheduleSearch(value);
+    },
+    [scheduleSearch],
+  );
+
+  const handleSubmitSearch = useCallback(
+    (event: TextInputSubmitEditingEvent) => {
+      cancelScheduledSearch();
+      void getSearchResults(event.nativeEvent.text);
+    },
+    [cancelScheduledSearch, getSearchResults],
+  );
+
+  const handleClearSearch = useCallback(() => {
+    cancelScheduledSearch();
+    latestRequestId.current += 1;
+    setSearchTextOverride('');
+    setSearchResults([]);
+    setLoading(false);
+  }, [cancelScheduledSearch]);
+
+  const handleDismiss = useCallback(() => {
+    cancelScheduledSearch();
+    latestRequestId.current += 1;
+    setSearchTextOverride(undefined);
+    setSelectedNovel(undefined);
+    onDismiss();
+  }, [cancelScheduledSearch, onDismiss]);
 
   const handleSelectNovel = useCallback((item: SearchResult) => {
     setSelectedNovel(item);
-  }, []);
-
-  const handleClearSearch = useCallback(() => {
-    setSearchText('');
   }, []);
 
   const handleRemoveSelection = useCallback(() => {
@@ -65,8 +157,8 @@ const TrackSearchDialog: React.FC<TrackSearchDialogProps> = ({
     if (selectedNovel) {
       onTrackNovel(tracker, selectedNovel);
     }
-    onDismiss();
-  }, [selectedNovel, onTrackNovel, tracker, onDismiss]);
+    handleDismiss();
+  }, [selectedNovel, onTrackNovel, tracker, handleDismiss]);
 
   const renderSearchResultCard = useCallback(
     (item: SearchResult) => {
@@ -94,8 +186,10 @@ const TrackSearchDialog: React.FC<TrackSearchDialogProps> = ({
                 style={styles.checkIcon}
               />
             )}
-            <Image
-              source={{ uri: item.coverImage }}
+            <NovelCoverImage
+              uri={item.coverImage}
+              theme={theme}
+              iconSize={28}
               style={styles.coverImage}
             />
             <Text
@@ -108,67 +202,71 @@ const TrackSearchDialog: React.FC<TrackSearchDialogProps> = ({
         </TouchableRipple>
       );
     },
-    [selectedNovel, handleSelectNovel, theme.rippleColor, theme.primary, theme.onSurface],
+    [selectedNovel, handleSelectNovel, theme],
   );
 
   return (
-    <Modal visible={visible} onDismiss={onDismiss}>
-      <TextInput
-        value={searchText}
-        onChangeText={setSearchText}
-        onSubmitEditing={getSearchResults}
-        textColor={theme.onSurface}
-        theme={{
-          colors: {
-            primary: theme.primary,
-            text: theme.onSurface,
-          },
-        }}
-        style={styles.textInput}
-        underlineColor={theme.outline}
-        right={
-          <TextInput.Icon
-            color={theme.onSurfaceVariant}
-            icon="close"
-            onPress={handleClearSearch}
-          />
-        }
-      />
-      <ScrollView style={styles.scrollView}>
-        {loading ? (
-          <ActivityIndicator
-            color={theme.primary}
-            size={45}
-            style={styles.loader}
-          />
-        ) : (
-          searchResults.map(renderSearchResultCard)
-        )}
-      </ScrollView>
-      <View style={styles.buttonContainer}>
-        <Button onPress={handleRemoveSelection}>
-          {getString('common.remove')}
-        </Button>
-        <View style={styles.actionButtons}>
-          <Button onPress={onDismiss}>{getString('common.cancel')}</Button>
-          <Button onPress={handleConfirm}>OK</Button>
-        </View>
-      </View>
-    </Modal>
+    <Dialog.Root visible={visible} onDismiss={handleDismiss}>
+      <Dialog.Title>{tracker.name}</Dialog.Title>
+      <Dialog.Content>
+        <TextInput
+          value={searchText}
+          onChangeText={handleSearchTextChange}
+          onSubmitEditing={handleSubmitSearch}
+          returnKeyType="search"
+          textColor={theme.onSurface}
+          theme={{
+            colors: {
+              primary: theme.primary,
+              text: theme.onSurface,
+            },
+          }}
+          style={styles.textInput}
+          underlineColor={theme.outline}
+          right={
+            <TextInput.Icon
+              color={theme.onSurfaceVariant}
+              icon="close"
+              onPress={handleClearSearch}
+            />
+          }
+        />
+      </Dialog.Content>
+      <Dialog.ScrollArea>
+        <FlashList
+          data={loading ? [] : searchResults}
+          keyExtractor={item => item.id.toString()}
+          ListEmptyComponent={
+            loading ? (
+              <ActivityIndicator
+                color={theme.primary}
+                size={45}
+                style={styles.loader}
+              />
+            ) : null
+          }
+          renderItem={({ item }) => renderSearchResultCard(item)}
+          style={styles.resultsList}
+        />
+      </Dialog.ScrollArea>
+      <Dialog.Actions>
+        <Dialog.Action
+          title={getString('common.remove')}
+          onPress={handleRemoveSelection}
+        />
+        <Dialog.Action
+          title={getString('common.cancel')}
+          onPress={handleDismiss}
+        />
+        <Dialog.Action title="OK" onPress={handleConfirm} />
+      </Dialog.Actions>
+    </Dialog.Root>
   );
 };
 
 export default TrackSearchDialog;
 
 const styles = StyleSheet.create({
-  actionButtons: {
-    flexDirection: 'row',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 30,
-  },
   checkIcon: {
     position: 'absolute',
     right: 8,
@@ -191,7 +289,7 @@ const styles = StyleSheet.create({
     padding: 8,
     paddingLeft: 0,
   },
-  scrollView: {
+  resultsList: {
     flexGrow: 1,
     marginVertical: 8,
     maxHeight: 500,

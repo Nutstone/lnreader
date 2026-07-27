@@ -1,6 +1,6 @@
 import { eq, sql, isNotNull, desc, getColumns } from 'drizzle-orm';
 import { showToast } from '@utils/showToast';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { dbManager } from '@database/db';
 import { chapterSchema, novelSchema } from '@database/schema';
 
@@ -32,7 +32,8 @@ export const getHistoryFromDb = async () => {
  */
 export const insertHistory = async (chapterId: number): Promise<void> => {
   await dbManager.write(async tx => {
-    tx.update(chapterSchema)
+    await tx
+      .update(chapterSchema)
       .set({
         readTime: sql`datetime('now','localtime')`,
       })
@@ -48,9 +49,23 @@ export const deleteChapterHistory = async (
   chapterId: number,
 ): Promise<void> => {
   await dbManager.write(async tx => {
-    tx.update(chapterSchema)
+    await tx
+      .update(chapterSchema)
       .set({ readTime: null })
       .where(eq(chapterSchema.id, chapterId))
+      .run();
+  });
+};
+
+/**
+ * Clear the reading history for every chapter belonging to a novel.
+ */
+export const deleteNovelHistory = async (novelId: number): Promise<void> => {
+  await dbManager.write(async tx => {
+    await tx
+      .update(chapterSchema)
+      .set({ readTime: null })
+      .where(eq(chapterSchema.novelId, novelId))
       .run();
   });
 };
@@ -60,7 +75,7 @@ export const deleteChapterHistory = async (
  */
 export const deleteAllHistory = async (): Promise<void> => {
   await dbManager.write(async tx => {
-    tx.update(chapterSchema).set({ readTime: null }).run();
+    await tx.update(chapterSchema).set({ readTime: null }).run();
   });
   showToast(getString('historyScreen.deleted'));
 };

@@ -1,22 +1,22 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useAppSettings, useTheme } from '@hooks/persisted';
 import { Button, LoadingScreenV2 } from '@components/index';
+import IconButtonV2 from '@components/IconButtonV2/IconButtonV2';
 import { EdgeInsets, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { ThemeColors } from '@theme/types';
-import renderListChapter from './RenderListChapter';
+import RenderListChapter from './RenderListChapter';
 import { useChapterContext } from '@screens/reader/ChapterContext';
-import { useNovelContext } from '@screens/novel/NovelContext';
-import { LegendList, LegendListRef, ViewToken } from '@legendapp/list';
+import {
+  LegendList,
+  LegendListRef,
+  ViewToken,
+} from '@legendapp/list/react-native';
 import { noop } from 'lodash-es';
+import { useNovelActions, useNovelValue } from '@screens/novel/NovelContext';
+import { ChapterInfo } from '@database/types';
 
 type ButtonProperties = {
   text: string;
@@ -28,24 +28,33 @@ type ButtonsProperties = {
   down: ButtonProperties;
 };
 
-const ChapterDrawer = () => {
+const viewabilityConfig = {
+  minimumViewTime: 100,
+  itemVisiblePercentThreshold: 90,
+};
+
+type ChapterDrawerProps = {
+  onClose?: () => void;
+};
+
+const ChapterDrawer = ({ onClose }: ChapterDrawerProps) => {
   const { chapter, getChapter, setLoading } = useChapterContext();
-  const {
-    chapters,
-    novelSettings,
-    pages,
-    fetching,
-    batchInformation,
-    getNextChapterBatch,
-    setPageIndex,
-  } = useNovelContext();
+  const chapters = useNovelValue('chapters');
+  const novelSettings = useNovelValue('novelSettings');
+  const pages = useNovelValue('pages');
+  const fetching = useNovelValue('fetching');
+  const batchInformation = useNovelValue('batchInformation');
+  const { getNextChapterBatch, openPage } = useNovelActions();
+
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { defaultChapterSort } = useAppSettings();
   const listRef = useRef<LegendListRef | null>(null);
-  // ChapterInfo is used via the hooks
 
-  const styles = createStylesheet(theme, insets);
+  const styles = useMemo(
+    () => createStylesheet(theme, insets),
+    [theme, insets],
+  );
 
   const { sort = defaultChapterSort } = novelSettings;
   const listAscending = sort.endsWith('Asc');
@@ -69,61 +78,100 @@ const ChapterDrawer = () => {
     if (pageIndex === -1) {
       pageIndex = 0;
     }
-    setPageIndex(pageIndex);
-  }, [chapter, pages, setPageIndex]);
+    openPage(pageIndex);
+    // Only the page matters here; depending on the whole chapter object would
+    // re-run this on every progress update.
+  }, [chapter.page, pages, openPage]);
 
-  const calculateScrollToIndex = useCallback(() => {
+  const currentChapterIndex = useMemo(() => {
     if (chapters.length < 1) {
       return;
     }
 
-    const indexOfCurrentChapter =
-      chapters.findIndex(el => {
-        return el.id === chapter.id;
-      }) || 0;
+    const index = chapters.findIndex(el => el.id === chapter.id);
+    return index >= 0 ? index : 0;
+  }, [chapter.id, chapters]);
 
-    return indexOfCurrentChapter >= 2 ? indexOfCurrentChapter - 2 : 0;
-  }, [chapters, chapter.id]);
+  const currentScrollIndex =
+    currentChapterIndex === undefined
+      ? undefined
+      : Math.max(0, currentChapterIndex - 2);
 
-  const scrollToIndex = useRef<number | undefined>(calculateScrollToIndex());
+  /**
+   * Index the list should sit at, or `undefined` while the chapters are still
+   * loading. Derived during render (rather than read back from the ref) so the
+   * list actually appears once the chapters arrive.
+   */
+  const scrollToIndex = useRef<number | undefined>(currentScrollIndex);
 
   const [footerBtnProps, setButtonProperties] =
     useState<ButtonsProperties>(defaultButtonLayout);
 
   const checkViewableItems = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-      const curChapter = getString(
-        'readerScreen.drawer.scrollToCurrentChapter',
-      );
-      const newBtnLayout = Object.create(defaultButtonLayout);
+      if (viewableItems.length === 0 || currentChapterIndex === undefined) {
+        return;
+      }
 
-      if (viewableItems.length === 0) return;
-      const visible = viewableItems
-        .map(v => v.index)
-        .includes((scrollToIndex.current ?? 0) + 2);
+      const newBtnLayout: ButtonsProperties = {
+        up: { ...defaultButtonLayout.up },
+        down: { ...defaultButtonLayout.down },
+      };
+      const currentChapterVisible = viewableItems
+        .map(item => item.index)
+        .includes(currentChapterIndex);
 
-      if (!visible && scrollToIndex.current !== undefined) {
+      if (!currentChapterVisible && currentScrollIndex !== undefined) {
+        const firstVisibleIndex = viewableItems[0].index ?? 0;
+        const currentChapterButton = {
+          text: getString('readerScreen.drawer.scrollToCurrentChapter'),
+          index: currentScrollIndex,
+        };
+
         if (
           listAscending
-            ? (viewableItems[0].index ?? 0) < scrollToIndex.current + 2
-            : (viewableItems[0].index ?? 0) > scrollToIndex.current + 2
+            ? firstVisibleIndex < currentChapterIndex
+            : firstVisibleIndex > currentChapterIndex
         ) {
-          newBtnLayout.down = {
-            text: curChapter,
-            index: scrollToIndex.current,
-          };
+          newBtnLayout.down = currentChapterButton;
         } else {
-          newBtnLayout.up = {
-            text: curChapter,
-            index: scrollToIndex.current,
-          };
+          newBtnLayout.up = currentChapterButton;
         }
       }
 
       setButtonProperties(newBtnLayout);
     },
-    [defaultButtonLayout, listAscending],
+    [
+      currentChapterIndex,
+      currentScrollIndex,
+      defaultButtonLayout,
+      listAscending,
+    ],
   );
+
+  const openChapter = useCallback(
+    (item: ChapterInfo) => {
+      setLoading(true);
+      getChapter(item);
+    },
+    [getChapter, setLoading],
+  );
+
+  // Every prop here is stable for a given chapter, so unchanged rows can skip
+  // re-rendering when the chapter list is rebuilt.
+  const renderItem = useCallback(
+    ({ item }: { item: ChapterInfo }) => (
+      <RenderListChapter
+        item={item}
+        styles={styles}
+        theme={theme}
+        chapterId={chapter.id}
+        onPress={openChapter}
+      />
+    ),
+    [chapter.id, openChapter, styles, theme],
+  );
+
   const scroll = useCallback((index?: number) => {
     if (index !== undefined) {
       listRef.current?.scrollToIndex({
@@ -138,51 +186,48 @@ const ChapterDrawer = () => {
   }, []);
 
   useEffect(() => {
-    const next = calculateScrollToIndex();
-    if (next !== undefined) {
+    if (currentScrollIndex !== undefined) {
       if (
         scrollToIndex.current === undefined ||
-        next !== scrollToIndex.current
+        currentScrollIndex !== scrollToIndex.current
       ) {
-        scroll(next);
+        scroll(currentScrollIndex);
       }
-      scrollToIndex.current = next;
+      scrollToIndex.current = currentScrollIndex;
     }
-  }, [chapters, chapter.id, calculateScrollToIndex, scroll]);
+  }, [currentScrollIndex, scroll]);
 
   return (
     <View style={styles.drawer}>
-      <Text style={styles.headerCtn}>{getString('common.chapters')}</Text>
-      {scrollToIndex === undefined ? (
+      <View style={styles.headerCtn}>
+        <Text style={styles.headerTitle}>{getString('common.chapters')}</Text>
+        {onClose ? (
+          <IconButtonV2
+            accessibilityLabel={getString('common.close')}
+            name="close"
+            onPress={onClose}
+            padding={12}
+            theme={theme}
+          />
+        ) : null}
+      </View>
+      {currentScrollIndex === undefined ? (
         <LoadingScreenV2 theme={theme} />
       ) : (
         <LegendList
           ref={listRef}
           recycleItems
-          viewabilityConfig={{
-            minimumViewTime: 100,
-            itemVisiblePercentThreshold: 90,
-          }}
+          viewabilityConfig={viewabilityConfig}
           onViewableItemsChanged={checkViewableItems}
           data={chapters}
-          extraData={[chapter, scrollToIndex.current]}
+          extraData={chapter.id}
           keyExtractor={item =>
             `chapter_${item.id}_${item.position ?? 'no_pos'}`
           }
-          renderItem={val =>
-            renderListChapter({
-              item: val.item,
-              styles,
-              theme,
-              chapterId: chapter.id,
-              onPress: () => {
-                setLoading(true);
-                getChapter(val.item);
-              },
-            })
-          }
-          estimatedItemSize={60}
-          initialScrollIndex={scrollToIndex.current}
+          renderItem={renderItem}
+          estimatedItemSize={62}
+          initialScrollIndex={currentScrollIndex}
+          contentContainerStyle={styles.listContent}
           onEndReached={
             batchInformation.batch < batchInformation.total && !fetching
               ? getNextChapterBatch
@@ -212,52 +257,62 @@ const ChapterDrawer = () => {
 const createStylesheet = (theme: ThemeColors, insets: EdgeInsets) => {
   return StyleSheet.create({
     button: {
-      marginBottom: 12,
-      marginHorizontal: 16,
-      marginTop: 4,
+      marginVertical: 4,
     },
     chapterCtn: {
       flex: 1,
       justifyContent: 'center',
-      paddingHorizontal: 20,
+      paddingHorizontal: 12,
       paddingVertical: 10,
     },
     chapterNameCtn: {
       color: theme.onSurface,
-      fontSize: 12,
+      fontSize: 14,
+      lineHeight: 20,
       marginBottom: 2,
     },
     drawer: {
       backgroundColor: theme.surface,
       flex: 1,
-      paddingTop: 48,
+      paddingTop: insets.top,
     },
     drawerElementContainer: {
-      borderRadius: 50,
-      margin: 4,
-      marginHorizontal: 16,
+      marginVertical: 2,
       minHeight: 48,
       overflow: 'hidden',
     },
     footer: {
-      borderTopColor: theme.outline,
-      borderTopWidth: 1,
-      marginTop: 4,
-      paddingBottom: insets.bottom,
+      borderTopColor: theme.outlineVariant,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      paddingBottom: Math.max(insets.bottom, 8),
+      paddingHorizontal: 16,
       paddingTop: 8,
     },
     headerCtn: {
-      borderBottomColor: theme.outline,
+      alignItems: 'center',
+      borderBottomColor: theme.outlineVariant,
       borderBottomWidth: 1,
+      flexDirection: 'row',
+      minHeight: 64,
+      paddingLeft: 16,
+      paddingRight: 4,
+      paddingVertical: 8,
+    },
+    headerTitle: {
       color: theme.onSurface,
-      fontSize: 16,
-      fontWeight: '500',
-      marginBottom: 4,
-      padding: 16,
+      flex: 1,
+      fontSize: 20,
+      fontWeight: '600',
+      lineHeight: 28,
+    },
+    listContent: {
+      paddingBottom: 8,
+      paddingTop: 12,
     },
     releaseDateCtn: {
       color: theme.onSurfaceVariant,
-      fontSize: 10,
+      fontSize: 12,
+      lineHeight: 16,
     },
   });
 };

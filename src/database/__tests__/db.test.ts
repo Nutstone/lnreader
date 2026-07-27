@@ -1,23 +1,14 @@
-import Database from 'better-sqlite3';
+import { open, type DB } from '@op-engineering/op-sqlite';
 import { drizzle } from 'drizzle-orm/op-sqlite';
 import { migrate } from 'drizzle-orm/op-sqlite/migrator';
 import migrations from '../../../drizzle/migrations';
 import { schema } from '@database/schema';
 
-jest.mock('@op-engineering/op-sqlite', () => ({
-  __esModule: true,
-  open: jest.fn(() => ({
-    execute: jest.fn().mockResolvedValue({ rows: [] }),
-    executeAsync: jest.fn().mockResolvedValue({ rows: [] }),
-    executeSync: jest.fn().mockReturnValue({ rows: [] }),
-    executeRawAsync: jest.fn().mockResolvedValue([]),
-    executeBatch: jest.fn().mockResolvedValue(undefined),
-    flushPendingReactiveQueries: jest.fn(),
-    reactiveExecute: jest.fn(() => () => undefined),
-  })),
-}));
-
-import { runDatabaseBootstrap } from '@database/db';
+import {
+  getPendingMigrations,
+  repairMigrationHistory,
+  runDatabaseBootstrap,
+} from '@database/db';
 
 const MIGRATION_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS Category (
@@ -80,84 +71,26 @@ const MIGRATION_STATEMENTS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS repository_url_unique ON Repository (url)`,
 ];
 
-const createExecutor = (sqlite: Database.Database) => ({
+const createExecutor = (sqlite: DB) => ({
   executeSync: (sql: string, params?: unknown[]) => {
-    if (params && params.length) {
-      const stmt = sqlite.prepare(sql);
-      stmt.run(params as any[]);
-      return;
-    }
-    sqlite.exec(sql);
+    sqlite.executeSync(sql, params as any[]);
   },
 });
 
-const createOpSqliteAdapter = (sqlite: Database.Database) => {
-  return {
-    execute: async (sql: string, params?: unknown[]) => {
-      const stmt = sqlite.prepare(sql);
-      const rows =
-        params && params.length ? stmt.all(params as any[]) : stmt.all();
-      return {
-        rows: {
-          _array: rows.map(row =>
-            Object.values(row as Record<string, unknown>),
-          ),
-        },
-      };
-    },
-    executeSync: (sql: string, params?: unknown[]) => {
-      const stmt = sqlite.prepare(sql);
-      const result =
-        params && params.length ? stmt.run(params as any[]) : stmt.run();
-      return { rows: [], rowsAffected: result.changes ?? 0 };
-    },
-    executeAsync: async (sql: string, params?: unknown[]) => {
-      const stmt = sqlite.prepare(sql);
-      const result =
-        params && params.length ? stmt.run(params as any[]) : stmt.run();
-      return { rows: [], rowsAffected: result.changes ?? 0 };
-    },
-    executeRawAsync: async (sql: string, params?: unknown[]) => {
-      const stmt = sqlite.prepare(sql).raw();
-      const rows =
-        params && params.length ? stmt.all(params as any[]) : stmt.all();
-      return rows as unknown[][];
-    },
-    executeBatch: async (
-      commands: Array<[string, unknown[] | unknown[][]]>,
-    ) => {
-      const transaction = sqlite.transaction((cmds: typeof commands) => {
-        for (const cmd of cmds) {
-          const stmt = sqlite.prepare(cmd[0]);
-          if (Array.isArray(cmd[1])) {
-            for (const arg of cmd[1]) {
-              stmt.run(arg as any[]);
-            }
-          } else {
-            stmt.run(cmd[1] as any[]);
-          }
-        }
-      });
-      transaction(commands);
-    },
-    flushPendingReactiveQueries: () => undefined,
-    reactiveExecute: () => () => undefined,
-  };
-};
-
 describe('new database initialization', () => {
   it('creates schema, triggers, and default data', async () => {
-    const sqlite = new Database(':memory:');
+    const sqlite = open({ name: ':memory:' });
+    (sqlite as any).executeAsync ??= sqlite.execute;
+    (sqlite as any).executeRawAsync ??= sqlite.executeRaw;
     try {
-      const adapter = createOpSqliteAdapter(sqlite);
-      const drizzleDb = drizzle(adapter, { schema });
+      const drizzleDb = drizzle(sqlite, { schema });
 
       await migrate(drizzleDb, migrations);
       runDatabaseBootstrap(createExecutor(sqlite));
 
-      const tables = sqlite
-        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-        .all() as Array<{ name: string }>;
+      const tables = sqlite.executeSync(
+        "SELECT name FROM sqlite_master WHERE type='table'",
+      ).rows as { name: string }[];
       const tableNames = tables.map(table => table.name);
       expect(tableNames).toEqual(
         expect.arrayContaining([
@@ -169,9 +102,9 @@ describe('new database initialization', () => {
         ]),
       );
 
-      const triggers = sqlite
-        .prepare("SELECT name FROM sqlite_master WHERE type='trigger'")
-        .all() as Array<{ name: string }>;
+      const triggers = sqlite.executeSync(
+        "SELECT name FROM sqlite_master WHERE type='trigger'",
+      ).rows as { name: string }[];
       const triggerNames = triggers.map(trigger => trigger.name);
       expect(triggerNames).toEqual(
         expect.arrayContaining([
@@ -182,9 +115,9 @@ describe('new database initialization', () => {
         ]),
       );
 
-      const categories = sqlite
-        .prepare('SELECT id, name FROM Category ORDER BY id')
-        .all() as Array<{ id: number; name: string }>;
+      const categories = sqlite.executeSync(
+        'SELECT id, name FROM Category ORDER BY id',
+      ).rows as { id: number; name: string }[];
       expect(categories.map(category => category.id)).toEqual([1, 2]);
     } finally {
       sqlite.close();
@@ -194,20 +127,23 @@ describe('new database initialization', () => {
 
 describe('runDatabaseBootstrap', () => {
   it('applies pragmas, triggers, and default categories', () => {
-    const sqlite = new Database(':memory:');
+    const sqlite = open({ name: ':memory:' });
+    (sqlite as any).executeAsync ??= sqlite.execute;
+    (sqlite as any).executeRawAsync ??= sqlite.executeRaw;
     try {
       for (const statement of MIGRATION_STATEMENTS) {
-        sqlite.exec(statement.trim());
+        sqlite.executeSync(statement.trim());
       }
 
+      sqlite.executeSync('PRAGMA journal_mode = WAL');
       runDatabaseBootstrap(createExecutor(sqlite));
 
-      const journalMode = sqlite.pragma('journal_mode', { simple: true });
+      const journalMode = sqlite.executeRawSync('PRAGMA journal_mode')[0]?.[0];
       expect(['wal', 'memory']).toContain(String(journalMode).toLowerCase());
 
-      const triggers = sqlite
-        .prepare("SELECT name FROM sqlite_master WHERE type='trigger'")
-        .all() as Array<{ name: string }>;
+      const triggers = sqlite.executeSync(
+        "SELECT name FROM sqlite_master WHERE type='trigger'",
+      ).rows as { name: string }[];
       const triggerNames = triggers.map(trigger => trigger.name);
       expect(triggerNames).toEqual(
         expect.arrayContaining([
@@ -218,9 +154,9 @@ describe('runDatabaseBootstrap', () => {
         ]),
       );
 
-      const categories = sqlite
-        .prepare('SELECT id, name FROM Category ORDER BY id')
-        .all() as Array<{ id: number; name: string }>;
+      const categories = sqlite.executeSync(
+        'SELECT id, name FROM Category ORDER BY id',
+      ).rows as { id: number; name: string }[];
       expect(categories.map(category => category.id)).toEqual([1, 2]);
       expect(categories.map(category => category.name)).toEqual([
         'categories.default',
@@ -234,19 +170,20 @@ describe('runDatabaseBootstrap', () => {
 
 describe('production migrations', () => {
   it('can run after test schema exists', async () => {
-    const sqlite = new Database(':memory:');
+    const sqlite = open({ name: ':memory:' });
+    (sqlite as any).executeAsync ??= sqlite.execute;
+    (sqlite as any).executeRawAsync ??= sqlite.executeRaw;
     try {
       for (const statement of MIGRATION_STATEMENTS) {
-        sqlite.exec(statement.trim());
+        sqlite.executeSync(statement.trim());
       }
 
-      const adapter = createOpSqliteAdapter(sqlite);
-      const drizzleDb = drizzle(adapter, { schema });
-      await migrate(drizzleDb, migrations);
+      const drizzleDb = drizzle(sqlite, { schema });
+      await migrate(drizzleDb, getPendingMigrations(sqlite));
 
-      const tables = sqlite
-        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-        .all() as Array<{ name: string }>;
+      const tables = sqlite.executeSync(
+        "SELECT name FROM sqlite_master WHERE type='table'",
+      ).rows as { name: string }[];
       const tableNames = tables.map(table => table.name);
       expect(tableNames).toEqual(
         expect.arrayContaining([
@@ -257,6 +194,58 @@ describe('production migrations', () => {
           'Repository',
         ]),
       );
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('recovers when the scanlator column exists without a migration record', async () => {
+    const sqlite = open({ name: ':memory:' });
+    (sqlite as any).executeAsync ??= sqlite.execute;
+    (sqlite as any).executeRawAsync ??= sqlite.executeRaw;
+    try {
+      for (const statement of MIGRATION_STATEMENTS) {
+        sqlite.executeSync(statement.trim());
+      }
+      sqlite.executeSync('ALTER TABLE Chapter ADD scanlator text');
+      sqlite.executeSync(`
+        CREATE TABLE __drizzle_migrations (
+          id INTEGER PRIMARY KEY,
+          hash text NOT NULL,
+          created_at numeric,
+          name text,
+          applied_at text
+        )
+      `);
+      sqlite.executeSync(`
+        INSERT INTO __drizzle_migrations (hash, created_at, name)
+        VALUES ('', 1766417172000, NULL)
+      `);
+
+      repairMigrationHistory(sqlite);
+
+      expect(
+        sqlite.executeSync(
+          "SELECT name FROM __drizzle_migrations WHERE name = '20260612232322_normal_saracen'",
+        ).rows,
+      ).toHaveLength(1);
+
+      const drizzleDb = drizzle(sqlite, { schema });
+      await migrate(drizzleDb, getPendingMigrations(sqlite));
+
+      const scanlatorColumns = sqlite
+        .executeRawSync('PRAGMA table_info(Chapter)')
+        .filter(column => column[1] === 'scanlator');
+      expect(scanlatorColumns).toHaveLength(1);
+
+      const appliedMigrations = sqlite.executeSync(
+        'SELECT name FROM __drizzle_migrations ORDER BY created_at',
+      ).rows as { name: string }[];
+      expect(appliedMigrations.map(row => row.name)).toEqual([
+        '20251222152612_past_mandrill',
+        '20260612232322_normal_saracen',
+		'20260719143427_long_moondragon'
+      ]);
     } finally {
       sqlite.close();
     }

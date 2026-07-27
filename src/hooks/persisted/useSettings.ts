@@ -4,10 +4,33 @@ import {
   LibraryFilter,
   LibrarySortOrder,
 } from '@screens/library/constants/constants';
-import { Voice } from 'expo-speech';
+import { TtsEngine, TtsVoice } from '@modules/nitro-tts';
 import { useMMKVObject } from 'react-native-mmkv';
+import { useMemo } from 'react';
+import { getMMKVObject } from '@utils/mmkv/mmkv';
+import type { DateFormat } from '@utils/dateFormat';
+import type { AutomaticLibraryUpdateInterval } from '@services/backgroundTasks';
 
 export const APP_SETTINGS = 'APP_SETTINGS';
+
+/**
+ * Cooldown applied between sequential chapter downloads when no override
+ * is configured. Matches the historical hard-coded sleep so installs
+ * upgrading from earlier builds keep the same behaviour.
+ */
+export const DEFAULT_CHAPTER_DOWNLOAD_COOLDOWN_MS = 1000;
+
+/**
+ * Resolve the cooldown without subscribing to changes. Safe to call from
+ * background services and the headless task runner.
+ */
+export const getChapterDownloadCooldownMs = (): number => {
+  const settings = getMMKVObject<AppSettings>(APP_SETTINGS);
+  const ms = settings?.chapterDownloadCooldownMs;
+  return typeof ms === 'number' && Number.isFinite(ms) && ms >= 0
+    ? ms
+    : DEFAULT_CHAPTER_DOWNLOAD_COOLDOWN_MS;
+};
 export const BROWSE_SETTINGS = 'BROWSE_SETTINGS';
 export const LIBRARY_SETTINGS = 'LIBRARY_SETTINGS';
 export const CHAPTER_GENERAL_SETTINGS = 'CHAPTER_GENERAL_SETTINGS';
@@ -29,6 +52,8 @@ export interface AppSettings {
   showLabelsInNav: boolean;
   useFabForContinueReading: boolean;
   disableLoadingAnimations: boolean;
+  dateFormat?: DateFormat;
+  relativeTimestamps?: boolean;
 
   /**
    * Library settings
@@ -41,10 +66,20 @@ export interface AppSettings {
    * Update settings
    */
 
-  onlyUpdateOngoingNovels: boolean;
+  smartUpdateSkipCompleted: boolean;
+  smartUpdateSkipUnstarted: boolean;
+  smartUpdateSkipWithUnread: boolean;
+  automaticLibraryUpdateIntervalHours: AutomaticLibraryUpdateInterval;
   updateLibraryOnLaunch: boolean;
   downloadNewChapters: boolean;
   refreshNovelMetadata: boolean;
+
+  /**
+   * Download settings
+   */
+
+  /** Cooldown between sequential chapter downloads in milliseconds. */
+  chapterDownloadCooldownMs?: number;
 
   /**
    * Novel settings
@@ -52,6 +87,14 @@ export interface AppSettings {
 
   hideBackdrop: boolean;
   defaultChapterSort: ChapterOrderKey;
+
+  /**
+   * Time-tracking settings
+   */
+  /** Whether to actually enable time tracking */
+  timeTrackingEnabled: boolean;
+  /** The timeout after which to consider the user inactive and not track time */
+  inactivityTimeoutMs?: number;
 }
 
 export interface BrowseSettings {
@@ -61,6 +104,12 @@ export interface BrowseSettings {
 }
 
 export interface LibrarySettings {
+  /** User-selected category for newly added novels. */
+  defaultCategoryId?: number;
+  /** Last category viewed in the library. */
+  lastUsedCategoryId?: number;
+  globalUpdateExcludeCategoryIds?: number[];
+  globalUpdateIncludeCategoryIds?: number[];
   sortOrder?: LibrarySortOrder;
   filter?: LibraryFilter;
   showDownloadBadges?: boolean;
@@ -71,6 +120,51 @@ export interface LibrarySettings {
   incognitoMode?: boolean;
   downloadedOnlyMode?: boolean;
 }
+
+export interface GlobalUpdateCategoryFilters {
+  excludedCategoryIds: number[];
+  includedCategoryIds: number[];
+}
+
+export interface SmartUpdateFilters {
+  skipCompleted: boolean;
+  skipUnstarted: boolean;
+  skipWithUnread: boolean;
+}
+
+const normalizeCategoryIds = (categoryIds?: number[]): number[] =>
+  Array.from(
+    new Set(
+      (categoryIds ?? []).filter(
+        categoryId => Number.isInteger(categoryId) && categoryId > 0,
+      ),
+    ),
+  );
+
+export const getGlobalUpdateCategoryFilters =
+  (): GlobalUpdateCategoryFilters => {
+    const settings = getMMKVObject<LibrarySettings>(LIBRARY_SETTINGS);
+
+    return {
+      excludedCategoryIds: normalizeCategoryIds(
+        settings?.globalUpdateExcludeCategoryIds,
+      ),
+      includedCategoryIds: normalizeCategoryIds(
+        settings?.globalUpdateIncludeCategoryIds,
+      ),
+    };
+  };
+
+export const getLibraryDefaultCategoryId = (): number | undefined => {
+  const settings = getMMKVObject<LibrarySettings>(LIBRARY_SETTINGS);
+  const categoryId = settings?.defaultCategoryId;
+
+  return typeof categoryId === 'number' &&
+    Number.isInteger(categoryId) &&
+    categoryId > 2
+    ? categoryId
+    : undefined;
+};
 
 export interface ChapterGeneralSettings {
   keepScreenOn: boolean;
@@ -109,7 +203,9 @@ export interface ChapterReaderSettings {
   customJS: string;
   customThemes: ReaderTheme[];
   tts?: {
-    voice?: Voice;
+    /** Android only: the selected engine, or the system default when absent. */
+    engine?: TtsEngine;
+    voice?: TtsVoice;
     rate?: number;
     pitch?: number;
     autoPageAdvance?: boolean;
@@ -122,6 +218,7 @@ export interface ChapterReaderSettings {
   epubUseAppTheme: boolean;
   epubUseCustomCSS: boolean;
   epubUseCustomJS: boolean;
+  epubIncludeChapterNumber: boolean;
 }
 
 const initialAppSettings: AppSettings = {
@@ -141,6 +238,8 @@ const initialAppSettings: AppSettings = {
   showLabelsInNav: true,
   useFabForContinueReading: false,
   disableLoadingAnimations: false,
+  dateFormat: 'default',
+  relativeTimestamps: true,
 
   /**
    * Library settings
@@ -153,7 +252,10 @@ const initialAppSettings: AppSettings = {
    * Update settings
    */
 
-  onlyUpdateOngoingNovels: false,
+  smartUpdateSkipCompleted: false,
+  smartUpdateSkipUnstarted: false,
+  smartUpdateSkipWithUnread: false,
+  automaticLibraryUpdateIntervalHours: 0,
   updateLibraryOnLaunch: false,
   downloadNewChapters: false,
   refreshNovelMetadata: false,
@@ -164,6 +266,12 @@ const initialAppSettings: AppSettings = {
 
   hideBackdrop: false,
   defaultChapterSort: 'positionAsc',
+
+  /**
+   * Time-tracking settings
+   */
+  timeTrackingEnabled: true,
+  inactivityTimeoutMs: 5 * 60 * 1000, // 5 minutes
 };
 
 const initialBrowseSettings: BrowseSettings = {
@@ -216,6 +324,7 @@ export const initialChapterReaderSettings: ChapterReaderSettings = {
   epubUseAppTheme: false,
   epubUseCustomCSS: false,
   epubUseCustomJS: false,
+  epubIncludeChapterNumber: false,
 };
 
 export const useAppSettings = () => {
@@ -285,24 +394,30 @@ export const useChapterReaderSettings = () => {
   const [storedSettings = initialChapterReaderSettings, setSettings] =
     useMMKVObject<ChapterReaderSettings>(CHAPTER_READER_SETTINGS);
 
-  // Ensure TTS and audiobook settings have proper defaults (migration for existing users)
-  const chapterReaderSettings = {
-    ...storedSettings,
-    tts: {
-      ...initialChapterReaderSettings.tts,
-      ...storedSettings.tts,
-      // Explicitly ensure these defaults if undefined
-      autoPageAdvance: storedSettings.tts?.autoPageAdvance ?? false,
-      scrollToTop: storedSettings.tts?.scrollToTop ?? true,
-      rate: storedSettings.tts?.rate ?? 1,
-      pitch: storedSettings.tts?.pitch ?? 1,
-    },
-    audiobook: {
-      ...initialChapterReaderSettings.audiobook,
-      ...storedSettings.audiobook,
-      autoPageAdvance: storedSettings.audiobook?.autoPageAdvance ?? false,
-    },
-  };
+  // Ensure TTS and audiobook settings have proper defaults (migration for
+  // existing users). Memoized because several reader components read these
+  // settings, and a new object on every render invalidates everything derived
+  // from them.
+  const chapterReaderSettings = useMemo(
+    () => ({
+      ...storedSettings,
+      tts: {
+        ...initialChapterReaderSettings.tts,
+        ...storedSettings.tts,
+        // Explicitly ensure these defaults if undefined
+        autoPageAdvance: storedSettings.tts?.autoPageAdvance ?? false,
+        scrollToTop: storedSettings.tts?.scrollToTop ?? true,
+        rate: storedSettings.tts?.rate ?? 1,
+        pitch: storedSettings.tts?.pitch ?? 1,
+      },
+      audiobook: {
+        ...initialChapterReaderSettings.audiobook,
+        ...storedSettings.audiobook,
+        autoPageAdvance: storedSettings.audiobook?.autoPageAdvance ?? false,
+      },
+    }),
+    [storedSettings],
+  );
 
   const setChapterReaderSettings = (values: Partial<ChapterReaderSettings>) =>
     setSettings({ ...chapterReaderSettings, ...values });

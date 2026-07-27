@@ -12,7 +12,7 @@ import AddCategoryModal from './components/AddCategoryModal';
 import { updateCategoryOrderInDb } from '@database/queries/CategoryQueries';
 import { useBoolean } from '@hooks';
 import { useTheme } from '@hooks/persisted';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 
 import CategoryCard from './components/CategoryCard';
 import CategorySkeletonLoading from './components/CategorySkeletonLoading';
@@ -87,7 +87,7 @@ const CategoriesScreen = () => {
           data={userCategories}
           contentContainerStyle={styles.contentCtn}
           renderItem={renderItem}
-          keyExtractor={(item, index) => `${item.id}-${index}`}
+          keyExtractor={item => item.id.toString()}
           onDragEnd={onDragEnd}
           activationDistance={10}
           autoscrollSpeed={100}

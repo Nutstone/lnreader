@@ -8,12 +8,12 @@ import {
   Platform,
 } from 'react-native';
 import { BottomSheetScrollView } from '@gorhom/bottom-sheet';
-import { TextInput, Portal } from 'react-native-paper';
+import { TextInput } from 'react-native-paper';
 import MaterialCommunityIcons from '@react-native-vector-icons/material-design-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import NativeFile from '@specs/NativeFile';
+import NativeFile from '@modules/native-file';
 import { useTheme, useChapterReaderSettings } from '@hooks/persisted';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { ThemeColors } from '@theme/types';
 import { Button, ConfirmationDialog } from '@components/index';
 import { showToast } from '@utils/showToast';
@@ -77,7 +77,7 @@ if (title) {
     } else {
       setChapterReaderSettings({ customJS: jsValue });
     }
-    showToast('Saved');
+    showToast(getString('common.saved'));
   };
 
   const handleReset = () => {
@@ -111,12 +111,12 @@ if (title) {
 
       if (file.assets) {
         const tempPath =
-          NativeFile.getConstants().ExternalCachesDirectoryPath +
+          NativeFile.ExternalCachesDirectoryPath +
           '/imported_custom.' +
           activeCodeTab;
-        NativeFile.copyFile(file.assets[0].uri, tempPath);
-        const content = NativeFile.readFile(tempPath);
-        NativeFile.unlink(tempPath);
+        await NativeFile.copyFile(file.assets[0].uri, tempPath);
+        const content = await NativeFile.readFile(tempPath);
+        await NativeFile.unlink(tempPath);
 
         if (activeCodeTab === 'css') {
           setCssValue(content.trim());
@@ -125,7 +125,7 @@ if (title) {
           setJsValue(content.trim());
           setChapterReaderSettings({ customJS: content.trim() });
         }
-        showToast('Imported');
+        showToast(getString('common.imported'));
       }
     } catch (error: any) {
       showToast(error.message);
@@ -146,10 +146,10 @@ if (title) {
         {/* Tab Selector */}
         <View style={styles.tabContainer}>
           <Pressable
-            style={[
-              styles.tab,
-              activeCodeTab === 'css' && styles.activeTab,
-            ]}
+            accessibilityLabel="CSS"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeCodeTab === 'css' }}
+            style={styles.tab}
             onPress={() => setActiveCodeTab('css')}
             android_ripple={{ color: theme.rippleColor }}
           >
@@ -175,13 +175,21 @@ if (title) {
             >
               CSS
             </Text>
+            {activeCodeTab === 'css' ? (
+              <View
+                style={[
+                  styles.tabIndicator,
+                  { backgroundColor: theme.primary },
+                ]}
+              />
+            ) : null}
           </Pressable>
 
           <Pressable
-            style={[
-              styles.tab,
-              activeCodeTab === 'js' && styles.activeTab,
-            ]}
+            accessibilityLabel="JavaScript"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeCodeTab === 'js' }}
+            style={styles.tab}
             onPress={() => setActiveCodeTab('js')}
             android_ripple={{ color: theme.rippleColor }}
           >
@@ -207,6 +215,14 @@ if (title) {
             >
               JS
             </Text>
+            {activeCodeTab === 'js' ? (
+              <View
+                style={[
+                  styles.tabIndicator,
+                  { backgroundColor: theme.primary },
+                ]}
+              />
+            ) : null}
           </Pressable>
         </View>
 
@@ -258,7 +274,11 @@ if (title) {
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
           <Button
-            title="Import"
+            title={
+              activeCodeTab === 'css'
+                ? getString('readerSettings.openCSSFile')
+                : getString('readerSettings.openJSFile')
+            }
             onPress={handleImport}
             mode="outlined"
             style={styles.button}
@@ -281,23 +301,20 @@ if (title) {
         <View style={styles.bottomSpacing} />
       </BottomSheetScrollView>
 
-      {/* Confirmation Dialogs */}
-      <Portal>
-        <ConfirmationDialog
-          title={getString('readerSettings.clearCustomCSS')}
-          visible={clearCSSModal.value}
-          onSubmit={confirmResetCSS}
-          onDismiss={clearCSSModal.setFalse}
-          theme={theme}
-        />
-        <ConfirmationDialog
-          title={getString('readerSettings.clearCustomJS')}
-          visible={clearJSModal.value}
-          onSubmit={confirmResetJS}
-          onDismiss={clearJSModal.setFalse}
-          theme={theme}
-        />
-      </Portal>
+      <ConfirmationDialog
+        title={getString('readerSettings.clearCustomCSS')}
+        confirmLabel={getString('common.clear')}
+        visible={clearCSSModal.value}
+        onConfirm={confirmResetCSS}
+        onDismiss={clearCSSModal.setFalse}
+      />
+      <ConfirmationDialog
+        title={getString('readerSettings.clearCustomJS')}
+        confirmLabel={getString('common.clear')}
+        visible={clearJSModal.value}
+        onConfirm={confirmResetJS}
+        onDismiss={clearJSModal.setFalse}
+      />
     </KeyboardAvoidingView>
   );
 };
@@ -318,11 +335,7 @@ const createStyles = (theme: ThemeColors) =>
     tabContainer: {
       flexDirection: 'row',
       borderBottomWidth: 1,
-      borderBottomColor: 'rgba(0, 0, 0, 0.12)',
-    },
-    activeTab: {
-      borderBottomColor: theme.primary,
-      borderBottomWidth: 2,
+      borderBottomColor: theme.outlineVariant,
     },
     tab: {
       flex: 1,
@@ -331,6 +344,14 @@ const createStyles = (theme: ThemeColors) =>
       justifyContent: 'center',
       paddingVertical: 12,
       minHeight: 48,
+    },
+    tabIndicator: {
+      position: 'absolute',
+      bottom: 0,
+      width: '60%',
+      height: 3,
+      borderTopLeftRadius: 3,
+      borderTopRightRadius: 3,
     },
     tabIcon: {
       marginEnd: 8,

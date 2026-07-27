@@ -1,4 +1,12 @@
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
+
+export const getLibraryCategoryIndex = (
+  categories: { id: number }[],
+  categoryId?: number,
+): number => {
+  const index = categories.findIndex(category => category.id === categoryId);
+  return index === -1 ? 0 : index;
+};
 
 export enum LibraryFilter {
   Downloaded = '(chaptersDownloaded > 0 OR isLocal = 1)',

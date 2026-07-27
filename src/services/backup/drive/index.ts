@@ -1,18 +1,16 @@
 import { DriveFile } from '@api/drive/types';
 import { sleep } from '@utils/sleep';
 import { exists } from '@api/drive';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { CACHE_DIR_PATH, prepareBackupData, restoreData } from '../utils';
 import { download, updateMetadata, uploadMedia } from '@api/drive/request';
 import { ZipBackupName } from '../types';
 import { ROOT_STORAGE } from '@utils/Storages';
-import { BackgroundTaskMetadata } from '@services/ServiceManager';
+import type { TaskProgressUpdater } from '@services/backgroundTasks/contracts';
 
 export const createDriveBackup = async (
   backupFolder: DriveFile,
-  setMeta: (
-    transformer: (meta: BackgroundTaskMetadata) => BackgroundTaskMetadata,
-  ) => void,
+  setMeta: TaskProgressUpdater,
 ) => {
   setMeta(meta => ({
     ...meta,
@@ -69,9 +67,7 @@ export const createDriveBackup = async (
 
 export const driveRestore = async (
   backupFolder: DriveFile,
-  setMeta: (
-    transformer: (meta: BackgroundTaskMetadata) => BackgroundTaskMetadata,
-  ) => void,
+  setMeta: TaskProgressUpdater,
 ) => {
   setMeta(meta => ({
     ...meta,

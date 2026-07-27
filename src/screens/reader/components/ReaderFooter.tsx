@@ -7,86 +7,91 @@ import Animated, {
   ReduceMotion,
   withTiming,
 } from 'react-native-reanimated';
-import { BottomSheetModalMethods } from '@gorhom/bottom-sheet/lib/typescript/types';
-import { ChapterScreenProps } from '@navigators/types';
 import { useChapterContext } from '../ChapterContext';
-import { SCREEN_HEIGHT } from '@gorhom/bottom-sheet';
-import { useNovelContext } from '@screens/novel/NovelContext';
 import { useTheme } from '@hooks/persisted';
+import { useNovelLayout } from '@screens/novel/NovelContext';
 
 interface ChapterFooterProps {
-  readerSheetRef: React.RefObject<BottomSheetModalMethods | null>;
+  openReaderSheet: () => void;
   scrollToStart: () => void;
-  navigation: ChapterScreenProps['navigation'];
   openDrawer: () => void;
 }
 
 const fastOutSlowIn = Easing.bezier(0.4, 0.0, 0.2, 1.0);
 
+const createEntering = (navigationBarHeight: number) => () => {
+  'worklet';
+  const animations = {
+    transform: [
+      {
+        translateY: withTiming(0, {
+          duration: 250,
+          easing: fastOutSlowIn,
+          reduceMotion: ReduceMotion.System,
+        }),
+      },
+    ],
+    opacity: withTiming(1, { duration: 150 }),
+  };
+  const initialValues = {
+    transform: [{ translateY: 64 + navigationBarHeight }],
+    opacity: 0,
+  };
+  return { initialValues, animations };
+};
+
+const createExiting = (navigationBarHeight: number) => () => {
+  'worklet';
+  const animations = {
+    transform: [
+      {
+        translateY: withTiming(64 + navigationBarHeight, {
+          duration: 250,
+          easing: fastOutSlowIn,
+          reduceMotion: ReduceMotion.System,
+        }),
+      },
+    ],
+    opacity: withTiming(0, { duration: 150 }),
+  };
+  const initialValues = {
+    transform: [{ translateY: 0 }],
+    opacity: 1,
+  };
+  return { initialValues, animations };
+};
+
 const ChapterFooter = ({
-  readerSheetRef,
+  openReaderSheet,
   scrollToStart,
-  navigation,
   openDrawer,
 }: ChapterFooterProps) => {
-  const { novel, chapter, nextChapter, prevChapter, navigateChapter } =
-    useChapterContext();
+  const { nextChapter, prevChapter, navigateChapter } = useChapterContext();
   const theme = useTheme();
   const rippleConfig = {
     color: theme.rippleColor,
     borderless: true,
     radius: 50,
   };
-  const { navigationBarHeight } = useNovelContext();
-
-  const entering = () => {
-    'worklet';
-    const animations = {
-      originY: withTiming(SCREEN_HEIGHT - navigationBarHeight - 64, {
-        duration: 250,
-        easing: fastOutSlowIn,
-        reduceMotion: ReduceMotion.System,
-      }),
-      opacity: withTiming(1, { duration: 150 }),
-    };
-    const initialValues = {
-      originY: SCREEN_HEIGHT - 64,
-      opacity: 0,
-    };
-    return {
-      initialValues,
-      animations,
-    };
-  };
-  const exiting = () => {
-    'worklet';
-    const animations = {
-      originY: withTiming(SCREEN_HEIGHT - 64, {
-        duration: 250,
-        easing: fastOutSlowIn,
-        reduceMotion: ReduceMotion.System,
-      }),
-      opacity: withTiming(0, { duration: 150 }),
-    };
-    const initialValues = {
-      originY: SCREEN_HEIGHT - navigationBarHeight - 64,
-      opacity: 1,
-    };
-    return {
-      initialValues,
-      animations,
-    };
-  };
+  const { navigationBarHeight } = useNovelLayout();
 
   const style = useMemo(
     () => [
-      styles.footer,
       {
         backgroundColor: color(theme.surface).alpha(0.9).string(),
         paddingBottom: navigationBarHeight,
       },
     ],
     [theme.surface, navigationBarHeight],
+  );
+
+  const entering = useMemo(
+    () => createEntering(navigationBarHeight),
+    [navigationBarHeight],
+  );
+  const exiting = useMemo(
+    () => createExiting(navigationBarHeight),
+    [navigationBarHeight],
   );
 
   return (
@@ -108,28 +113,13 @@ const ChapterFooter = ({
             iconColor={theme.onSurface}
           />
         </Pressable>
-        {!novel.isLocal ? (
-          <Pressable
-            android_ripple={rippleConfig}
-            style={styles.buttonStyles}
-            onPress={() =>
-              navigation.navigate('WebviewScreen', {
-                name: novel.name,
-                url: chapter.path,
-                pluginId: novel.pluginId,
-              })
-            }
-          >
-            <IconButton icon="earth" size={26} iconColor={theme.onSurface} />
-          </Pressable>
-        ) : null}
         <Pressable
           android_ripple={rippleConfig}
           style={styles.buttonStyles}
           onPress={() => scrollToStart()}
         >
           <IconButton
-            icon="format-vertical-align-top"
+            icon="arrow-collapse-up"
             size={26}
             iconColor={theme.onSurface}
           />
@@ -140,7 +130,7 @@ const ChapterFooter = ({
           onPress={() => openDrawer()}
         >
           <IconButton
-            icon="format-horizontal-align-right"
+            icon="format-list-bulleted"
             size={26}
             iconColor={theme.onSurface}
           />
@@ -148,7 +138,7 @@ const ChapterFooter = ({
         <Pressable
           android_ripple={rippleConfig}
           style={styles.buttonStyles}
-          onPress={() => readerSheetRef.current?.present()}
+          onPress={openReaderSheet}
         >
           <IconButton
             icon="cog-outline"

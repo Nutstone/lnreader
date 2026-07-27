@@ -13,16 +13,19 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { BottomSheetModal } from '@gorhom/bottom-sheet';
+import { BottomSheetModalMethods } from '@gorhom/bottom-sheet/lib/typescript/types';
 import {
   NavigationState,
   SceneRendererProps,
-  TabBar,
   TabView,
 } from 'react-native-tab-view';
-import Color from 'color';
 
-import { SearchbarV2, Button, SafeAreaView } from '@components/index';
+import {
+  SearchbarV2,
+  Button,
+  SafeAreaView,
+  TopTabBar,
+} from '@components/index';
 import { LibraryView } from './components/LibraryListView';
 import LibraryBottomSheet from './components/LibraryBottomSheet/LibraryBottomSheet';
 import { Banner } from './components/Banner';
@@ -30,7 +33,7 @@ import { Actionbar } from '@components/Actionbar/Actionbar';
 
 import { useAppSettings, useHistory, useTheme } from '@hooks/persisted';
 import { useSearch, useBackHandler, useBoolean } from '@hooks';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { FAB, Portal } from 'react-native-paper';
 import {
   markAllChaptersRead,
@@ -44,12 +47,13 @@ import { Row } from '@components/Common';
 import { LibraryScreenProps } from '@navigators/types';
 import { NovelInfo } from '@database/types';
 import * as DocumentPicker from 'expo-document-picker';
-import ServiceManager from '@services/ServiceManager';
+import { backgroundTasks } from '@services/backgroundTasks';
 import useImport from '@hooks/persisted/useImport';
 import { ThemeColors } from '@theme/types';
 import { useLibraryContext } from '@components/Context/LibraryContext';
 import { xor } from 'lodash-es';
 import { SelectionContext } from './SelectionContext';
+import { getLibraryCategoryIndex } from './constants/constants';
 
 type State = NavigationState<{
   key: string;
@@ -82,7 +86,13 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     categories,
     refetchLibrary,
     isLoading,
-    settings: { showNumberOfNovels, downloadedOnlyMode, incognitoMode },
+    settings: {
+      showNumberOfNovels,
+      downloadedOnlyMode,
+      incognitoMode,
+      lastUsedCategoryId,
+      setLibrarySettings,
+    },
   } = useLibraryContext();
 
   const { importNovel } = useImport();
@@ -92,9 +102,21 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
 
   const layout = useWindowDimensions();
 
-  const bottomSheetRef = useRef<BottomSheetModal | null>(null);
+  const bottomSheetRef = useRef<BottomSheetModalMethods | null>(null);
 
-  const [index, setIndex] = useState(0);
+  const [selectedCategoryId, setSelectedCategoryId] =
+    useState(lastUsedCategoryId);
+  const index = getLibraryCategoryIndex(categories, selectedCategoryId);
+  const setIndex = useCallback(
+    (nextIndex: number) => {
+      const categoryId = categories[nextIndex]?.id;
+      if (categoryId !== undefined) {
+        setSelectedCategoryId(categoryId);
+        setLibrarySettings({ lastUsedCategoryId: categoryId });
+      }
+    },
+    [categories, setLibrarySettings],
+  );
 
   const {
     value: setCategoryModalVisible,
@@ -178,25 +200,17 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
 
   const searchLower = useMemo(() => searchText.toLowerCase(), [searchText]);
 
-  const tabBarBorderColor = useMemo(
-    () =>
-      Color(theme.isDark ? '#FFFFFF' : '#000000')
-        .alpha(0.12)
-        .string(),
-    [theme.isDark],
-  );
-
   const renderTabBar = useCallback(
     (props: SceneRendererProps & { navigationState: State }) => {
       return categories.length ? (
-        <TabBar
+        <TopTabBar
           {...props}
           scrollEnabled
           indicatorStyle={styles.tabBarIndicator}
           style={[
             {
               backgroundColor: theme.surface,
-              borderBottomColor: tabBarBorderColor,
+              borderBottomColor: theme.outlineVariant,
             },
             styles.tabBar,
           ]}
@@ -213,7 +227,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       styles.tabBar,
       styles.tabBarIndicator,
       styles.tabStyle,
-      tabBarBorderColor,
+      theme.outlineVariant,
       theme.primary,
       theme.rippleColor,
       theme.secondary,
@@ -346,14 +360,13 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     () => [
       {
         title: getString('libraryScreen.extraMenu.updateLibrary'),
-        onPress: () =>
-          ServiceManager.manager.addTask({ name: 'UPDATE_LIBRARY' }),
+        onPress: () => backgroundTasks.enqueue({ name: 'UPDATE_LIBRARY' }),
       },
       {
         title: getString('libraryScreen.extraMenu.updateCategory'),
         onPress: () =>
           categories[index]?.id !== 2 &&
-          ServiceManager.manager.addTask({
+          backgroundTasks.enqueue({
             name: 'UPDATE_LIBRARY',
             data: {
               categoryId: categories[index].id,
@@ -480,17 +493,21 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       ) : null}
 
       <SelectionContext.Provider value={selectionContextValue}>
-        <TabView
-          commonOptions={{
-            label: renderLabel,
-          }}
-          lazy
-          navigationState={navigationState}
-          renderTabBar={renderTabBar}
-          renderScene={renderScene}
-          onIndexChange={setIndex}
-          initialLayout={{ width: layout.width }}
-        />
+        {categories.length ? (
+          <TabView
+            commonOptions={{
+              label: renderLabel,
+            }}
+            lazy
+            navigationState={navigationState}
+            renderTabBar={renderTabBar}
+            renderScene={renderScene}
+            onIndexChange={setIndex}
+            initialLayout={{ width: layout.width }}
+          />
+        ) : (
+          <SourceScreenSkeletonLoading theme={theme} />
+        )}
       </SelectionContext.Provider>
 
       {useLibraryFAB &&

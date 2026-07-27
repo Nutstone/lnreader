@@ -1,6 +1,5 @@
 import { getPlugin } from '@plugins/pluginManager';
-import { getChapter } from '@database/queries/ChapterQueries';
-import { BackgroundTaskMetadata } from '@services/ServiceManager';
+import type { BackgroundTaskMetadata } from '@services/backgroundTasks/contracts';
 import { AudiobookPipeline } from './pipeline';
 import { AudiobookConfig } from './types';
 import { getMMKVObject } from '@utils/mmkv/mmkv';

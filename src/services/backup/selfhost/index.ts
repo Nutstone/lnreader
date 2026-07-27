@@ -1,21 +1,17 @@
 import { sleep } from '@utils/sleep';
 import { download, upload } from '@api/remote';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { CACHE_DIR_PATH, prepareBackupData, restoreData } from '../utils';
 import { ZipBackupName } from '../types';
 import { ROOT_STORAGE } from '@utils/Storages';
-import { BackgroundTaskMetadata } from '@services/ServiceManager';
-
-export interface SelfHostData {
-  host: string;
-  backupFolder: string;
-}
+import type {
+  SelfHostData,
+  TaskProgressUpdater,
+} from '@services/backgroundTasks/contracts';
 
 export const createSelfHostBackup = async (
   { host, backupFolder }: SelfHostData,
-  setMeta: (
-    transformer: (meta: BackgroundTaskMetadata) => BackgroundTaskMetadata,
-  ) => void,
+  setMeta: TaskProgressUpdater,
 ) => {
   setMeta(meta => ({
     ...meta,
@@ -55,9 +51,7 @@ export const createSelfHostBackup = async (
 
 export const selfHostRestore = async (
   { host, backupFolder }: SelfHostData,
-  setMeta: (
-    transformer: (meta: BackgroundTaskMetadata) => BackgroundTaskMetadata,
-  ) => void,
+  setMeta: TaskProgressUpdater,
 ) => {
   setMeta(meta => ({
     ...meta,

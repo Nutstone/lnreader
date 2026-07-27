@@ -7,7 +7,7 @@ import {
   Pressable,
   ImageSourcePropType,
 } from 'react-native';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { Button } from '@components';
 
 import { ThemeColors } from '@theme/types';
@@ -27,21 +27,26 @@ const DiscoverCard: React.FC<Props> = ({
 }) => {
   return (
     <Pressable
+      accessibilityLabel={`${getString('browse')} ${trackerName}`}
+      accessibilityRole="button"
       style={styles.container}
       onPress={onPress}
       android_ripple={{ color: theme.rippleColor }}
     >
-      <View style={styles.flexRow}>
+      <View style={[styles.flexRow, styles.mainAction]}>
         <Image source={icon} style={styles.icon} />
         <View style={styles.details}>
-          <Text style={{ color: theme.onSurface }}>{trackerName}</Text>
+          <Text style={[styles.name, { color: theme.onSurface }]}>
+            {trackerName}
+          </Text>
         </View>
       </View>
       <View style={styles.flexRow}>
         <Button
+          accessible={false}
+          pointerEvents="none"
           title={getString('browse')}
           textColor={theme.primary}
-          onPress={onPress}
         />
       </View>
     </Pressable>
@@ -69,5 +74,12 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     height: 40,
     width: 40,
+  },
+  mainAction: {
+    flex: 1,
+  },
+  name: {
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

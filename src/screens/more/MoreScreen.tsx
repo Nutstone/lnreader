@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { StyleSheet, View, Pressable, Text, ScrollView } from 'react-native';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 
 import { List, SafeAreaView } from '@components';
 
@@ -9,12 +9,15 @@ import { useLibrarySettings, useTheme } from '@hooks/persisted';
 import { MoreStackScreenProps } from '@navigators/types';
 import Switch from '@components/Switch/Switch';
 import { useMMKVObject } from 'react-native-mmkv';
-import ServiceManager, { BackgroundTask } from '@services/ServiceManager';
+import {
+  BACKGROUND_TASKS_STORE_KEY,
+  QueuedBackgroundTask,
+} from '@services/backgroundTasks';
 
 const MoreScreen = ({ navigation }: MoreStackScreenProps) => {
   const theme = useTheme();
-  const [taskQueue] = useMMKVObject<BackgroundTask[]>(
-    ServiceManager.manager.STORE_KEY,
+  const [taskQueue] = useMMKVObject<QueuedBackgroundTask[]>(
+    BACKGROUND_TASKS_STORE_KEY,
   );
   const {
     incognitoMode = false,
@@ -116,10 +119,7 @@ const MoreScreen = ({ navigation }: MoreStackScreenProps) => {
                 </Text>
               </View>
             </View>
-            <Switch
-              value={incognitoMode}
-              onValueChange={enableIncognitoMode}
-            />
+            <Switch value={incognitoMode} onValueChange={enableIncognitoMode} />
           </Pressable>
           <List.Divider theme={theme} />
           <List.Item

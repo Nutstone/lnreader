@@ -12,9 +12,14 @@ export const initialAppSettings = {
   showLabelsInNav: true,
   useFabForContinueReading: false,
   disableLoadingAnimations: false,
+  dateFormat: 'default',
+  relativeTimestamps: true,
   downloadedOnlyMode: false,
   useLibraryFAB: false,
-  onlyUpdateOngoingNovels: false,
+  smartUpdateSkipCompleted: false,
+  smartUpdateSkipUnstarted: false,
+  smartUpdateSkipWithUnread: false,
+  automaticLibraryUpdateIntervalHours: 0,
   updateLibraryOnLaunch: false,
   downloadNewChapters: false,
   refreshNovelMetadata: false,
@@ -29,6 +34,9 @@ export const initialBrowseSettings = {
 };
 
 export const defaultLibrarySettings = {
+  defaultCategoryId: undefined,
+  globalUpdateExcludeCategoryIds: [],
+  globalUpdateIncludeCategoryIds: [],
   showNumberOfNovels: false,
   downloadedOnlyMode: false,
   incognitoMode: false,

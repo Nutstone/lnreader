@@ -7,16 +7,10 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import {
-  SceneMap,
-  TabBar,
-  TabDescriptor,
-  TabView,
-} from 'react-native-tab-view';
-import color from 'color';
+import { SceneMap, TabDescriptor, TabView } from 'react-native-tab-view';
 
 import { useLibrarySettings, useTheme } from '@hooks/persisted';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { Checkbox, SortItem } from '@components/Checkbox/Checkbox';
 import {
   DisplayModes,
@@ -27,11 +21,11 @@ import {
   librarySortOrderList,
 } from '@screens/library/constants/constants';
 import { RadioButton } from '@components/RadioButton/RadioButton';
-import { overlay } from 'react-native-paper';
 import { BottomSheetView } from '@gorhom/bottom-sheet';
 import BottomSheet from '@components/BottomSheet/BottomSheet';
+import { TopTabBar } from '@components';
 import { BottomSheetModalMethods } from '@gorhom/bottom-sheet/lib/typescript/types';
-import { LegendList } from '@legendapp/list';
+import { LegendList } from '@legendapp/list/react-native';
 
 interface LibraryBottomSheetProps {
   bottomSheetRef: RefObject<BottomSheetModalMethods | null>;
@@ -191,23 +185,15 @@ const LibraryBottomSheet: React.FC<LibraryBottomSheetProps> = ({
 
   const layout = useWindowDimensions();
 
-  const borderBottomColor = useMemo(
-    () =>
-      color(theme.isDark ? '#FFFFFF' : '#000000')
-        .alpha(0.12)
-        .string(),
-    [theme.isDark],
-  );
-
   const renderTabBar = useCallback(
     (props: any) => (
-      <TabBar
+      <TopTabBar
         {...props}
         indicatorStyle={{ backgroundColor: theme.primary }}
         style={[
           {
-            backgroundColor: overlay(2, theme.surface),
-            borderBottomColor,
+            backgroundColor: theme.surfaceContainerLow ?? theme.surface,
+            borderBottomColor: theme.outlineVariant,
           },
           styles.tabBar,
           style,
@@ -220,9 +206,10 @@ const LibraryBottomSheet: React.FC<LibraryBottomSheetProps> = ({
     [
       theme.primary,
       theme.surface,
+      theme.surfaceContainerLow,
       theme.onSurfaceVariant,
       theme.rippleColor,
-      borderBottomColor,
+      theme.outlineVariant,
       style,
     ],
   );
@@ -255,12 +242,7 @@ const LibraryBottomSheet: React.FC<LibraryBottomSheetProps> = ({
 
   return (
     <BottomSheet bottomSheetRef={bottomSheetRef} snapPoints={[520]}>
-      <BottomSheetView
-        style={[
-          styles.bottomSheetCtn,
-          { backgroundColor: overlay(2, theme.surface) },
-        ]}
-      >
+      <BottomSheetView style={styles.bottomSheetCtn}>
         <TabView
           commonOptions={commonOptions}
           navigationState={{ index, routes }}
@@ -279,8 +261,6 @@ export default LibraryBottomSheet;
 
 const styles = StyleSheet.create({
   bottomSheetCtn: {
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
     flex: 1,
   },
   sectionHeader: {
@@ -292,8 +272,6 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   tabView: {
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
     height: 520,
   },
   flex: { flex: 1 },

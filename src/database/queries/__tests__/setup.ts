@@ -6,9 +6,11 @@
  */
 
 // @ts-ignore
+import type { TestDb } from './testDb';
+// @ts-ignore
 global.__DEV__ ??= false;
 
-import { createTestDb, cleanupTestDb, type TestDb } from './testDb';
+const getTestDbModule = () => require('./testDb') as typeof import('./testDb');
 
 // Module-level variable to hold the test database
 // Using 'mock' prefix so Jest allows it in jest.mock() factory
@@ -19,6 +21,7 @@ let mockTestDbInstance: TestDb | null = null;
  * This should be called in beforeEach of test files
  */
 export function setupTestDatabase(): TestDb {
+  const { createTestDb, cleanupTestDb } = getTestDbModule();
   if (mockTestDbInstance) {
     cleanupTestDb(mockTestDbInstance);
   }
@@ -42,6 +45,7 @@ export function getTestDb(): TestDb {
  * Cleans up the test database
  */
 export function teardownTestDatabase() {
+  const { cleanupTestDb } = getTestDbModule();
   if (mockTestDbInstance) {
     cleanupTestDb(mockTestDbInstance);
     mockTestDbInstance = null;
@@ -59,7 +63,7 @@ jest.mock('@utils/error', () => ({
   ),
 }));
 
-jest.mock('@strings/translations', () => ({
+jest.mock('@i18n/translations', () => ({
   getString: jest.fn((key: string) => key),
 }));
 
@@ -68,7 +72,7 @@ jest.mock('@utils/Storages', () => ({
 }));
 
 // Mock NativeFile
-jest.mock('@specs/NativeFile', () => ({
+jest.mock('@modules/native-file', () => ({
   __esModule: true,
   default: {
     exists: jest.fn().mockReturnValue(true),
@@ -112,27 +116,6 @@ jest.mock('expo-document-picker', () => ({
     canceled: true,
     assets: null,
   }),
-}));
-
-// Mock database utilities
-jest.mock('@database/utils/parser', () => ({
-  chapterFilterToSQL: jest.fn().mockReturnValue(undefined),
-  chapterOrderToSQL: jest.fn().mockReturnValue(undefined),
-}));
-
-// Mock database constants
-jest.mock('@database/constants', () => ({
-  ChapterFilterKey: {
-    UNREAD: 'unread',
-    DOWNLOADED: 'downloaded',
-    BOOKMARKED: 'bookmarked',
-  },
-  ChapterOrderKey: {
-    BY_SOURCE: 'bySource',
-    BY_SOURCE_DESC: 'bySourceDesc',
-    BY_CHAPTER_NUMBER: 'byChapterNumber',
-    BY_CHAPTER_NUMBER_DESC: 'byChapterNumberDesc',
-  },
 }));
 
 // Mock lodash-es to avoid ES module issues

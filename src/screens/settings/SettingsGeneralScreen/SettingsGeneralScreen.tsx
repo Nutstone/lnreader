@@ -1,230 +1,81 @@
-import React from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
 
-import DisplayModeModal from './modals/DisplayModeModal';
-import GridSizeModal from './modals/GridSizeModal';
-
-import {
-  useAppSettings,
-  useLastUpdate,
-  useLibrarySettings,
-  useTheme,
-} from '@hooks/persisted';
-import DefaultChapterSortModal from '../components/DefaultChapterSortModal';
-import {
-  DisplayModes,
-  displayModesList,
-  LibrarySortOrder,
-} from '@screens/library/constants/constants';
 import { useBoolean } from '@hooks';
+import { useAppSettings, useTheme } from '@hooks/persisted';
 import { Appbar, List, SafeAreaView } from '@components';
-import NovelSortModal from './modals/NovelSortModal';
-import NovelBadgesModal from './modals/NovelBadgesModal';
-import { NavigationState } from '@react-navigation/native';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
+import { SettingsStackParamList } from '@navigators/types';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+
 import SettingSwitch from '../components/SettingSwitch';
+import DownloadCooldownModal from './modals/DownloadCooldownModal';
+import InactivityTimeoutModal from './modals/InactivityTimeoutModal';
 
-interface GenralSettingsProps {
-  navigation: NavigationState;
-}
+type GeneralSettingsProps = NativeStackScreenProps<
+  SettingsStackParamList,
+  'GeneralSettings'
+>;
 
-const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
+const GeneralSettings = ({ navigation }: GeneralSettingsProps) => {
   const theme = useTheme();
-
   const {
-    displayMode = DisplayModes.Comfortable,
-    novelsPerRow = 3,
-    showDownloadBadges = true,
-    showNumberOfNovels = false,
-    showUnreadBadges = true,
-    sortOrder = LibrarySortOrder.DateAdded_DESC,
-  } = useLibrarySettings();
-
-  const sortOrderDisplay: string[] = sortOrder.split(' ');
-  const sortOrderNameMap = new Map<string, string>([
-    ['name', 'libraryScreen.bottomSheet.sortOrders.alphabetically'],
-    ['chaptersDownloaded', 'libraryScreen.bottomSheet.sortOrders.download'],
-    ['chaptersUnread', 'libraryScreen.bottomSheet.sortOrders.totalChapters'],
-    ['id', 'libraryScreen.bottomSheet.sortOrders.dateAdded'],
-    ['lastReadAt', 'libraryScreen.bottomSheet.sortOrders.lastRead'],
-    ['lastUpdatedAt', 'libraryScreen.bottomSheet.sortOrders.lastUpdated'],
-  ]);
-  const {
-    disableLoadingAnimations,
-    updateLibraryOnLaunch,
-    downloadNewChapters,
-    onlyUpdateOngoingNovels,
-    defaultChapterSort,
-    refreshNovelMetadata,
+    chapterDownloadCooldownMs,
     disableHapticFeedback,
-    useLibraryFAB,
+    disableLoadingAnimations,
+    inactivityTimeoutMs,
     setAppSettings,
+    timeTrackingEnabled,
   } = useAppSettings();
 
-  const { showLastUpdateTime, setShowLastUpdateTime } = useLastUpdate();
+  const downloadCooldownModal = useBoolean();
+  const inactivityTimeoutModal = useBoolean();
 
-  const generateNovelBadgesDescription = () => {
-    const res = [];
-    if (showDownloadBadges) {
-      res.push(getString('libraryScreen.bottomSheet.display.download'));
-    }
-    if (showUnreadBadges) {
-      res.push(getString('libraryScreen.bottomSheet.display.unread'));
-    }
-    if (showNumberOfNovels) {
-      res.push(getString('libraryScreen.bottomSheet.display.numberOfItems'));
-    }
-    return res.join(', ');
-  };
-
-  /**
-   * Display Mode Modal
-   */
-  const displayModalRef = useBoolean();
-
-  /**
-   * Grid Size Modal
-   */
-  const gridSizeModalRef = useBoolean();
-
-  /**
-   * Novel Badges Modal
-   */
-  const novelBadgesModalRef = useBoolean();
-  const novelBadgesDescription = generateNovelBadgesDescription();
-  /**
-   * Novel Sort Modal
-   */
-  const novelSortModalRef = useBoolean();
-  /**
-   * Chapter Sort Modal
-   */
-  const defaultChapterSortModal = useBoolean();
   return (
     <SafeAreaView excludeTop>
       <Appbar
         title={getString('generalSettings')}
-        // @ts-ignore
         handleGoBack={navigation.goBack}
         theme={theme}
       />
       <ScrollView contentContainerStyle={styles.paddingBottom}>
         <List.Section>
           <List.SubHeader theme={theme}>
-            {getString('common.display')}
-          </List.SubHeader>
-          <List.Item
-            title={getString('generalSettingsScreen.displayMode')}
-            description={displayModesList[displayMode].label}
-            onPress={displayModalRef.setTrue}
-            theme={theme}
-          />
-          <List.Item
-            title={getString('generalSettingsScreen.itemsPerRowLibrary')}
-            description={
-              novelsPerRow +
-              ' ' +
-              getString('generalSettingsScreen.itemsPerRow')
-            }
-            onPress={gridSizeModalRef.setTrue}
-            theme={theme}
-          />
-          <List.Item
-            title={getString('generalSettingsScreen.novelBadges')}
-            // @ts-ignore
-            description={novelBadgesDescription}
-            onPress={novelBadgesModalRef.setTrue}
-            theme={theme}
-          />
-          <List.Item
-            title={getString('generalSettingsScreen.novelSort')}
-            description={
-              // @ts-ignore
-              getString(sortOrderNameMap.get(sortOrderDisplay[0])) +
-              ' ' +
-              sortOrderDisplay[1]
-            }
-            onPress={novelSortModalRef.setTrue}
-            theme={theme}
-          />
-          <List.Divider theme={theme} />
-          <List.SubHeader theme={theme}>{getString('library')}</List.SubHeader>
-          <SettingSwitch
-            label={getString('generalSettingsScreen.updateLibrary')}
-            description={getString('generalSettingsScreen.updateLibraryDesc')}
-            value={updateLibraryOnLaunch}
-            onPress={() =>
-              setAppSettings({ updateLibraryOnLaunch: !updateLibraryOnLaunch })
-            }
-            theme={theme}
-          />
-          <SettingSwitch
-            label={getString('generalSettingsScreen.useFAB')}
-            value={useLibraryFAB}
-            onPress={() => setAppSettings({ useLibraryFAB: !useLibraryFAB })}
-            theme={theme}
-          />
-          <List.Divider theme={theme} />
-          <List.SubHeader theme={theme}>
-            {getString('generalSettingsScreen.novel')}
-          </List.SubHeader>
-          <List.Item
-            title={getString('generalSettingsScreen.chapterSort')}
-            description={`${getString('generalSettingsScreen.bySource')} ${
-              defaultChapterSort === 'positionAsc'
-                ? getString('generalSettingsScreen.asc')
-                : getString('generalSettingsScreen.desc')
-            }`}
-            onPress={defaultChapterSortModal.setTrue}
-            theme={theme}
-          />
-          <List.Divider theme={theme} />
-          <List.SubHeader theme={theme}>
-            {getString('generalSettingsScreen.globalUpdate')}
+            {getString('generalSettingsScreen.timeTracking')}
           </List.SubHeader>
           <SettingSwitch
-            label={getString('generalSettingsScreen.updateOngoing')}
-            value={onlyUpdateOngoingNovels}
-            onPress={() =>
-              setAppSettings({
-                onlyUpdateOngoingNovels: !onlyUpdateOngoingNovels,
-              })
-            }
-            theme={theme}
-          />
-          <SettingSwitch
-            label={getString('generalSettingsScreen.refreshMetadata')}
+            label={getString('generalSettingsScreen.enableTimeTracking')}
+            value={timeTrackingEnabled}
             description={getString(
-              'generalSettingsScreen.refreshMetadataDescription',
+              'generalSettingsScreen.enableTimeTrackingDesc',
             )}
-            value={refreshNovelMetadata}
             onPress={() =>
-              setAppSettings({ refreshNovelMetadata: !refreshNovelMetadata })
+              setAppSettings({ timeTrackingEnabled: !timeTrackingEnabled })
             }
             theme={theme}
           />
-          <SettingSwitch
-            label={getString('generalSettingsScreen.updateTime')}
-            value={showLastUpdateTime}
-            onPress={() => setShowLastUpdateTime(!showLastUpdateTime)}
-            theme={theme}
-          />
-          <List.Divider theme={theme} />
-          <List.SubHeader theme={theme}>
-            {getString('generalSettingsScreen.autoDownload')}
-          </List.SubHeader>
-          <SettingSwitch
-            label={getString('generalSettingsScreen.downloadNewChapters')}
-            value={downloadNewChapters}
-            onPress={() =>
-              setAppSettings({ downloadNewChapters: !downloadNewChapters })
+          <List.Item
+            title={getString('generalSettingsScreen.inactivityTimeout')}
+            description={
+              inactivityTimeoutMs === undefined
+                ? getString('generalSettingsScreen.inactivityTimeoutNever')
+                : getString('time.minutes', {
+                    count: inactivityTimeoutMs / 60000,
+                  })
             }
+            onPress={inactivityTimeoutModal.setTrue}
             theme={theme}
           />
-          <List.Divider theme={theme} />
           <List.SubHeader theme={theme}>
             {getString('generalSettings')}
           </List.SubHeader>
+          <List.Item
+            title={getString('generalSettingsScreen.chapterDownloadCooldown')}
+            description={`${(
+              (chapterDownloadCooldownMs ?? 1000) / 1000
+            ).toString()}s`}
+            onPress={downloadCooldownModal.setTrue}
+            theme={theme}
+          />
           <SettingSwitch
             label={getString('generalSettingsScreen.disableHapticFeedback')}
             description={getString(
@@ -251,41 +102,25 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
           />
         </List.Section>
       </ScrollView>
-      <DisplayModeModal
-        displayMode={displayMode}
-        displayModalVisible={displayModalRef.value}
-        hideDisplayModal={displayModalRef.setFalse}
+      <DownloadCooldownModal
+        visible={downloadCooldownModal.value}
+        hideModal={downloadCooldownModal.setFalse}
         theme={theme}
       />
-      <DefaultChapterSortModal
-        defaultChapterSort={defaultChapterSort}
-        displayModalVisible={defaultChapterSortModal.value}
-        hideDisplayModal={defaultChapterSortModal.setFalse}
-        setAppSettings={setAppSettings}
-        theme={theme}
-      />
-      <GridSizeModal
-        novelsPerRow={novelsPerRow}
-        gridSizeModalVisible={gridSizeModalRef.value}
-        hideGridSizeModal={gridSizeModalRef.setFalse}
-        theme={theme}
-      />
-      <NovelBadgesModal
-        novelBadgesModalVisible={novelBadgesModalRef.value}
-        hideNovelBadgesModal={novelBadgesModalRef.setFalse}
-        theme={theme}
-      />
-      <NovelSortModal
-        novelSortModalVisible={novelSortModalRef.value}
-        hideNovelSortModal={novelSortModalRef.setFalse}
+      <InactivityTimeoutModal
+        inactivityTimeoutMs={inactivityTimeoutMs}
+        modalVisible={inactivityTimeoutModal.value}
+        hideModal={inactivityTimeoutModal.setFalse}
         theme={theme}
       />
     </SafeAreaView>
   );
 };
 
-export default GenralSettings;
+export default GeneralSettings;
 
 const styles = StyleSheet.create({
-  paddingBottom: { paddingBottom: 32 },
+  paddingBottom: {
+    paddingBottom: 24,
+  },
 });

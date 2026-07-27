@@ -1,66 +1,64 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useNavigation } from '@react-navigation/native';
 import dayjs from 'dayjs';
 
-import { IconButtonV2 } from '@components';
-
-import { defaultCover } from '@plugins/helpers/constants';
-import { getString } from '@strings/translations';
+import { IconButtonV2, NovelCoverImage } from '@components';
+import { getString } from '@i18n/translations';
 import { useTheme } from '@hooks/persisted';
 
-import { History, NovelInfo } from '@database/types';
+import { History } from '@database/types';
 import { HistoryScreenProps } from '@navigators/types';
-
-import { coverPlaceholderColor } from '@theme/colors';
 
 interface HistoryCardProps {
   history: History;
-  handleRemoveFromHistory: (chapterId: number) => void;
+  onRemove: (history: History) => void;
 }
 
-const HistoryCard: React.FC<HistoryCardProps> = ({
-  history,
-  handleRemoveFromHistory,
-}) => {
+const HistoryCard: React.FC<HistoryCardProps> = ({ history, onRemove }) => {
   const theme = useTheme();
   const { navigate } = useNavigation<HistoryScreenProps['navigation']>();
 
   return (
-    <Pressable
-      style={styles.container}
-      android_ripple={{ color: theme.rippleColor }}
-      onPress={() =>
-        navigate('ReaderStack', {
-          screen: 'Chapter',
-          params: {
-            novel: {
-              path: history.novelPath,
-              name: history.novelName,
-              pluginId: history.pluginId,
-            } as NovelInfo,
-            chapter: history,
-          },
-        })
-      }
-    >
-      <View style={styles.imageAndNameContainer}>
+    <View>
+      <Pressable
+        style={styles.row}
+        android_ripple={{ color: theme.rippleColor }}
+        onPress={() =>
+          navigate('ReaderStack', {
+            screen: 'Chapter',
+            params: {
+              novel: {
+                id: history.novelId,
+                path: history.novelPath,
+                name: history.novelName,
+                pluginId: history.pluginId,
+                cover: history.novelCover,
+              },
+              chapter: history,
+            },
+          })
+        }
+      >
         <Pressable
-          onPress={() =>
+          onPress={event => {
+            event.stopPropagation();
             navigate('ReaderStack', {
               screen: 'Novel',
               params: {
-                name: history.name,
+                name: history.novelName,
                 path: history.novelPath,
                 cover: history.novelCover,
                 pluginId: history.pluginId,
               },
-            })
-          }
+            });
+          }}
         >
-          <Image
-            source={{ uri: history.novelCover || defaultCover }}
+          <NovelCoverImage
+            uri={history.novelCover}
+            theme={theme}
+            iconSize={24}
             style={styles.cover}
           />
         </Pressable>
@@ -72,23 +70,27 @@ const HistoryCard: React.FC<HistoryCardProps> = ({
             {history.novelName}
           </Text>
           <Text style={{ color: theme.onSurfaceVariant }}>
-            {`${getString('historyScreen.chapter')} ${history.chapterNumber
-              } • ${dayjs(history.readTime).format('LT').toUpperCase()}` +
-              `${history.progress && history.progress > 0
-                ? ' • ' + history.progress + '%'
-                : ''
+            {`${getString('historyScreen.chapter')} ${
+              history.chapterNumber
+            } • ${dayjs(history.readTime).format('LT').toUpperCase()}` +
+              `${
+                history.progress && history.progress > 0
+                  ? ' • ' + history.progress + '%'
+                  : ''
               }`}
           </Text>
         </View>
-      </View>
+        <View style={styles.buttonSpacer} />
+      </Pressable>
       <View style={styles.buttonContainer}>
         <IconButtonV2
+          accessibilityLabel={getString('common.remove')}
           name="delete-outline"
           theme={theme}
-          onPress={() => handleRemoveFromHistory(history.id)}
+          onPress={() => onRemove(history)}
         />
       </View>
-    </Pressable>
+    </View>
   );
 };
 
@@ -96,11 +98,16 @@ export default HistoryCard;
 
 const styles = StyleSheet.create({
   buttonContainer: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    bottom: 8,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 16,
+    top: 8,
   },
-  container: {
+  buttonSpacer: {
+    width: 40,
+  },
+  row: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -108,7 +115,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   cover: {
-    backgroundColor: coverPlaceholderColor,
     borderRadius: 4,
     height: 80,
     width: 56,
@@ -117,11 +123,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     marginStart: 16,
-  },
-  imageAndNameContainer: {
-    alignItems: 'center',
-    flex: 1,
-    flexDirection: 'row',
+    minHeight: 80,
   },
   novelName: {
     marginBottom: 4,

@@ -1,10 +1,9 @@
-import React from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
 
 import { Appbar, List, SafeAreaView } from '@components';
 import { useTheme } from '@hooks/persisted';
 
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { SettingsScreenProps } from '@navigators/types';
 
 const SettingsScreen = ({ navigation }: SettingsScreenProps) => {
@@ -34,6 +33,16 @@ const SettingsScreen = ({ navigation }: SettingsScreenProps) => {
           onPress={() =>
             navigation.navigate('SettingsStack', {
               screen: 'AppearanceSettings',
+            })
+          }
+          theme={theme}
+        />
+        <List.Item
+          title={getString('library')}
+          icon="bookshelf"
+          onPress={() =>
+            navigation.navigate('SettingsStack', {
+              screen: 'LibrarySettings',
             })
           }
           theme={theme}

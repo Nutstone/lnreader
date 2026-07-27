@@ -24,12 +24,18 @@ const THUMB_OFFSET_ON =
   TRACK_WIDTH - THUMB_SIZE_ON - (TRACK_HEIGHT - THUMB_SIZE_ON) / 2;
 
 interface SwitchProps {
+  accessible?: boolean;
   value: boolean;
   onValueChange?: () => void;
   style?: StyleProp<ViewStyle>;
 }
 
-const Switch = ({ value, onValueChange, style }: SwitchProps) => {
+const Switch = ({
+  accessible = true,
+  value,
+  onValueChange,
+  style,
+}: SwitchProps) => {
   const theme = useTheme();
 
   const progress = useSharedValue(value ? 1 : 0);
@@ -42,15 +48,12 @@ const Switch = ({ value, onValueChange, style }: SwitchProps) => {
   const thumbPositionStyle = useAnimatedStyle(() => ({
     transform: [
       {
-        translateX: withSpring(
-          value ? THUMB_OFFSET_ON : THUMB_OFFSET_OFF,
-          {
-            mass: 1,
-            damping: 15,
-            stiffness: 120,
-            overshootClamping: false,
-          },
-        ),
+        translateX: withSpring(value ? THUMB_OFFSET_ON : THUMB_OFFSET_OFF, {
+          mass: 1,
+          damping: 15,
+          stiffness: 120,
+          overshootClamping: false,
+        }),
       },
     ],
   }));
@@ -107,14 +110,9 @@ const Switch = ({ value, onValueChange, style }: SwitchProps) => {
   }));
 
   return (
-    <Pressable onPress={onValueChange}>
+    <Pressable accessible={accessible} onPress={onValueChange}>
       <Animated.View
-        style={[
-          styles.track,
-          style,
-          trackColorStyle,
-          trackBorderStyle,
-        ]}
+        style={[styles.track, style, trackColorStyle, trackBorderStyle]}
       >
         <Animated.View
           style={[

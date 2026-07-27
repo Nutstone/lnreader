@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FlatList, View, Text, StyleSheet } from 'react-native';
 import {
   FAB,
@@ -10,10 +10,14 @@ import {
 import { useTheme } from '@hooks/persisted';
 
 import { showToast } from '../../utils/showToast';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { Appbar, EmptyView, Menu, SafeAreaView } from '@components';
 import { TaskQueueScreenProps } from '@navigators/types';
-import ServiceManager, { QueuedBackgroundTask } from '@services/ServiceManager';
+import {
+  BACKGROUND_TASKS_STORE_KEY,
+  backgroundTasks,
+  QueuedBackgroundTask,
+} from '@services/backgroundTasks';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMMKVObject } from 'react-native-mmkv';
 
@@ -21,14 +25,15 @@ const DownloadQueue = ({ navigation }: TaskQueueScreenProps) => {
   const theme = useTheme();
   const { bottom, right } = useSafeAreaInsets();
   const [taskQueue] = useMMKVObject<QueuedBackgroundTask[]>(
-    ServiceManager.manager.STORE_KEY,
+    BACKGROUND_TASKS_STORE_KEY,
   );
-  const [isRunning, setIsRunning] = useState(ServiceManager.manager.isRunning);
+  const [isRunning, setIsRunning] = useState(backgroundTasks.isRunning);
   const [visible, setVisible] = useState(false);
   const openMenu = () => setVisible(true);
   const closeMenu = () => setVisible(false);
   useEffect(() => {
     if (taskQueue?.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsRunning(false);
     }
   }, [taskQueue]);
@@ -58,7 +63,7 @@ const DownloadQueue = ({ navigation }: TaskQueueScreenProps) => {
         >
           <Menu.Item
             onPress={() => {
-              ServiceManager.manager.stop();
+              backgroundTasks.cancelAll();
               setIsRunning(false);
               showToast(getString('downloadScreen.cancelled'));
               closeMenu();
@@ -113,10 +118,10 @@ const DownloadQueue = ({ navigation }: TaskQueueScreenProps) => {
           icon={isRunning ? 'pause' : 'play'}
           onPress={() => {
             if (isRunning) {
-              ServiceManager.manager.pause();
+              backgroundTasks.pauseAll();
               setIsRunning(false);
             } else {
-              ServiceManager.manager.resume();
+              backgroundTasks.resumeAll();
               setIsRunning(true);
             }
           }}

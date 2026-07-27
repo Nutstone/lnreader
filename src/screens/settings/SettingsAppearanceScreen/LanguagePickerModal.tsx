@@ -1,12 +1,12 @@
 import React from 'react';
 
-import { Dialog, Portal } from 'react-native-paper';
-import { ScrollView, StyleSheet, Text } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { useTheme } from '@hooks/persisted';
-import { Modal, RadioButton } from '@components';
-import { getString, setLocale } from '@strings/translations';
+import { Dialog, RadioButton } from '@components';
+import { getString, setLocale } from '@i18n/translations';
 import { useMMKVString } from 'react-native-mmkv';
+import { FlatList } from 'react-native-gesture-handler';
 
 interface LanguagePickerModalProps {
   visible: boolean;
@@ -83,14 +83,22 @@ const LanguagePickerModal: React.FC<LanguagePickerModalProps> = ({
   };
 
   return (
-    <Portal>
-      <Modal visible={visible} onDismiss={onDismiss}>
+    <Dialog.Root
+      visible={visible}
+      onDismiss={onDismiss}
+      surfaceStyle={styles.maxHeight}
+    >
+      <Dialog.Header>
         <Dialog.Title>{getString('appearanceScreen.appLanguage')}</Dialog.Title>
-        <Text style={[styles.noteText, { color: theme.onSurfaceVariant }]}>
+        <Dialog.Description>
           {getString('appearanceScreen.languagePickerModal.restartNote')}
-        </Text>
-        <ScrollView>
-          {languages.map(item => (
+        </Dialog.Description>
+      </Dialog.Header>
+      <Dialog.ScrollArea>
+        <FlatList
+          data={languages}
+          keyExtractor={item => item.locale}
+          renderItem={({ item }) => (
             <RadioButton
               key={item.locale}
               status={currentLocale === item.locale}
@@ -98,19 +106,15 @@ const LanguagePickerModal: React.FC<LanguagePickerModalProps> = ({
               label={item.nativeName}
               theme={theme}
             />
-          ))}
-        </ScrollView>
-      </Modal>
-    </Portal>
+          )}
+        />
+      </Dialog.ScrollArea>
+    </Dialog.Root>
   );
 };
 
 export default LanguagePickerModal;
 
 const styles = StyleSheet.create({
-  noteText: {
-    lineHeight: 20,
-    marginBottom: 8,
-    paddingHorizontal: 24,
-  },
+  maxHeight: { maxHeight: '60%' },
 });

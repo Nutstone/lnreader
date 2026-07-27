@@ -6,7 +6,7 @@ import { NovelInfo } from '@database/types';
 import { useNavigation } from '@react-navigation/native';
 import { useBoolean } from '@hooks';
 import { ThemeColors } from '@theme/types';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import SetCategoryModal from '../SetCategoriesModal';
 import { NovelScreenProps } from '@navigators/types';
 import { useTrackedNovel, useTracker } from '@hooks/persisted';
@@ -140,13 +140,13 @@ const NovelScreenButtonGroup: React.FC<NovelScreenButtonGroupProps> = ({
           />
         ) : null}
       </View>
-      {novel.id !== 'NO_ID' && (
+      {novel.id !== 'NO_ID' && setCategoryModalVisible ? (
         <SetCategoryModal
           novelIds={[novel.id]}
           closeModal={closeSetCategoryModal}
-          visible={setCategoryModalVisible}
+          visible
         />
-      )}
+      ) : null}
     </>
   );
 };

@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, Pressable, TextStyle, StyleProp, ViewStyle } from 'react-native';
 import { Text } from 'react-native-paper';
-import color from 'color';
 import { ChapterInfo } from '@database/types';
 import { ThemeColors } from '@theme/types';
 
@@ -17,35 +16,49 @@ type Props = {
   styles: Styles;
   theme: ThemeColors;
   chapterId: number;
-  onPress: () => void;
+  /** Takes the chapter so the caller can pass a stable handler. */
+  onPress: (chapter: ChapterInfo) => void;
 };
 
-const renderListChapter = ({
+/**
+ * A component rather than a render function so that rows can bail out of
+ * re-rendering: the chapter list is re-created whenever reading progress is
+ * written, which happens continuously while a chapter is open.
+ */
+const RenderListChapter = ({
   item,
   styles,
   theme,
   onPress,
   chapterId,
 }: Props) => {
+  const isCurrentChapter = item.id === chapterId;
+
   return (
     <View
       style={[
         styles.drawerElementContainer,
-        item.id === chapterId && {
-          backgroundColor: color(theme.primary).alpha(0.12).string(),
+        isCurrentChapter && {
+          backgroundColor: theme.secondaryContainer,
         },
       ]}
     >
       <Pressable
         android_ripple={{ color: theme.rippleColor }}
-        onPress={onPress}
+        onPress={() => onPress(item)}
         style={styles.chapterCtn}
       >
         <Text
           numberOfLines={1}
           style={[
             styles.chapterNameCtn,
-            { color: item.unread ? theme.onSurface : theme.outline },
+            {
+              color: isCurrentChapter
+                ? theme.onSecondaryContainer
+                : item.unread
+                ? theme.onSurface
+                : theme.onSurfaceVariant,
+            },
           ]}
         >
           {item.name}
@@ -54,7 +67,13 @@ const renderListChapter = ({
           <Text
             style={[
               styles.releaseDateCtn,
-              { color: item.unread ? theme.onSurfaceVariant : theme.outline },
+              {
+                color: isCurrentChapter
+                  ? theme.onSecondaryContainer
+                  : item.unread
+                  ? theme.onSurfaceVariant
+                  : theme.outline,
+              },
             ]}
           >
             {item.releaseTime}
@@ -64,4 +83,5 @@ const renderListChapter = ({
     </View>
   );
 };
-export default renderListChapter;
+
+export default React.memo(RenderListChapter);

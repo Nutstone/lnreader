@@ -9,6 +9,7 @@ import { setupTestDatabase, getTestDb, teardownTestDatabase } from './setup';
 import {
   insertTestNovel,
   insertTestNovelCategory,
+  insertTestCategory,
   clearAllTables,
 } from './testData';
 import { categorySchema, novelCategorySchema } from '@database/schema';
@@ -30,10 +31,17 @@ import {
   updateNovelCategories,
 } from '../NovelQueries';
 
+const mockGetLibraryDefaultCategoryId = jest.fn<number | undefined, []>();
+
+jest.mock('@hooks/persisted/useSettings', () => ({
+  getLibraryDefaultCategoryId: () => mockGetLibraryDefaultCategoryId(),
+}));
+
 describe('NovelQueries', () => {
   beforeEach(() => {
     const testDb = setupTestDatabase();
     clearAllTables(testDb);
+    mockGetLibraryDefaultCategoryId.mockReturnValue(undefined);
   });
 
   afterAll(() => {
@@ -147,9 +155,9 @@ describe('NovelQueries', () => {
         'test-plugin',
       );
 
-      expect(result?.inLibrary).toBe(true);
-      const novel = await getNovelById(novelId);
-      expect(novel?.inLibrary).toBe(true);
+      expect(Boolean(result?.inLibrary)).toBe(true);
+      const novel = getNovelById(novelId);
+      expect(Boolean(novel?.inLibrary)).toBe(true);
     });
 
     it('should remove novel from library', async () => {
@@ -165,9 +173,9 @@ describe('NovelQueries', () => {
         'test-plugin',
       );
 
-      expect(result?.inLibrary).toBe(false);
-      const novel = await getNovelById(novelId);
-      expect(novel?.inLibrary).toBe(false);
+      expect(Boolean(result?.inLibrary)).toBe(false);
+      const novel = getNovelById(novelId);
+      expect(Boolean(novel?.inLibrary)).toBe(false);
     });
 
     it('should assign default category when adding to library', async () => {
@@ -199,6 +207,59 @@ describe('NovelQueries', () => {
         associations.some(a => a.categoryId === (defaultCategory?.id ?? -1)),
       ).toBe(!!defaultCategory);
     });
+
+    it('should assign the user-selected default category', async () => {
+      const testDb = getTestDb();
+      const categoryId = await insertTestCategory(testDb, {
+        name: 'Preferred Category',
+      });
+      const novelId = await insertTestNovel(testDb, {
+        inLibrary: false,
+        path: '/test/preferred-category',
+        pluginId: 'test-plugin',
+      });
+      mockGetLibraryDefaultCategoryId.mockReturnValue(categoryId);
+
+      await switchNovelToLibraryQuery(
+        '/test/preferred-category',
+        'test-plugin',
+      );
+
+      const associations = await testDb.drizzleDb
+        .select()
+        .from(novelCategorySchema)
+        .where(eq(novelCategorySchema.novelId, novelId))
+        .all();
+
+      expect(
+        associations.some(association => association.categoryId === categoryId),
+      ).toBe(true);
+    });
+
+    it('should fall back when the selected category no longer exists', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, {
+        inLibrary: false,
+        path: '/test/missing-preferred-category',
+        pluginId: 'test-plugin',
+      });
+      mockGetLibraryDefaultCategoryId.mockReturnValue(999);
+
+      await switchNovelToLibraryQuery(
+        '/test/missing-preferred-category',
+        'test-plugin',
+      );
+
+      const associations = await testDb.drizzleDb
+        .select()
+        .from(novelCategorySchema)
+        .where(eq(novelCategorySchema.novelId, novelId))
+        .all();
+
+      expect(
+        associations.some(association => association.categoryId === 1),
+      ).toBe(true);
+    });
   });
 
   describe('removeNovelsFromLibrary', () => {
@@ -211,8 +272,8 @@ describe('NovelQueries', () => {
 
       const novel1 = await getNovelById(novelId1);
       const novel2 = await getNovelById(novelId2);
-      expect(novel1?.inLibrary).toBe(false);
-      expect(novel2?.inLibrary).toBe(false);
+      expect(Boolean(novel1?.inLibrary)).toBe(false);
+      expect(Boolean(novel2?.inLibrary)).toBe(false);
     });
 
     it('should handle empty array', async () => {
@@ -222,11 +283,9 @@ describe('NovelQueries', () => {
     it('should clean up categories when removing from library', async () => {
       const testDb = getTestDb();
       const novelId = await insertTestNovel(testDb, { inLibrary: true });
-      const categoryId = await testDb.drizzleDb
-        .insert(categorySchema)
-        .values({ name: 'Test Category' })
-        .returning()
-        .get().id;
+      const categoryId = await insertTestCategory(testDb, {
+        name: 'Test Category',
+      });
       await insertTestNovelCategory(testDb, novelId, categoryId);
 
       await removeNovelsFromLibrary([novelId]);
@@ -379,11 +438,9 @@ describe('NovelQueries', () => {
     it('should add categories to a novel', async () => {
       const testDb = getTestDb();
       const novelId = await insertTestNovel(testDb, { inLibrary: true });
-      const categoryId = await testDb.drizzleDb
-        .insert(categorySchema)
-        .values({ name: 'Test Category' })
-        .returning()
-        .get().id;
+      const categoryId = await insertTestCategory(testDb, {
+        name: 'Test Category',
+      });
 
       await updateNovelCategoryById(novelId, [categoryId]);
 
@@ -402,11 +459,9 @@ describe('NovelQueries', () => {
       const testDb = getTestDb();
       const novelId1 = await insertTestNovel(testDb, { inLibrary: true });
       const novelId2 = await insertTestNovel(testDb, { inLibrary: true });
-      const categoryId = await testDb.drizzleDb
-        .insert(categorySchema)
-        .values({ name: 'Test Category' })
-        .returning()
-        .get().id;
+      const categoryId = await insertTestCategory(testDb, {
+        name: 'Test Category',
+      });
 
       await updateNovelCategories([novelId1, novelId2], [categoryId]);
 

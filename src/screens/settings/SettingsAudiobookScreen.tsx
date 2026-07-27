@@ -1,12 +1,11 @@
-import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
 
 import { Appbar, List, SafeAreaView } from '@components';
 import { useTheme, useAudiobookSettings } from '@hooks/persisted';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { AudiobookSettingsScreenProps } from '@navigators/types';
-import { Pressable } from 'react-native';
 
 const providers = [
   { key: 'anthropic' as const, label: 'audiobookSettings.providerAnthropic' },

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import Library from '../screens/library/LibraryScreen';
@@ -7,8 +7,12 @@ import History from '../screens/history/HistoryScreen';
 import Browse from '../screens/browse/BrowseScreen';
 import More from '../screens/more/MoreScreen';
 
-import { getString } from '@strings/translations';
-import { useAppSettings, usePlugins, useTheme } from '@hooks/persisted';
+import { getString } from '@i18n/translations';
+import {
+  useAppSettings,
+  useFilteredInstalledPlugins,
+  useTheme,
+} from '@hooks/persisted';
 import { BottomNavigatorParamList } from './types';
 import Icon from '@react-native-vector-icons/material-design-icons';
 import { MaterialDesignIconName } from '@type/icon';
@@ -25,7 +29,7 @@ const BottomNavigator = () => {
     showLabelsInNav = false,
   } = useAppSettings();
 
-  const { filteredInstalledPlugins } = usePlugins();
+  const filteredInstalledPlugins = useFilteredInstalledPlugins();
   const pluginsWithUpdate = useMemo(
     () => filteredInstalledPlugins.filter(p => p.hasUpdate).length,
     [filteredInstalledPlugins],
@@ -75,7 +79,7 @@ const BottomNavigator = () => {
     <Tab.Navigator
       screenOptions={() => ({
         headerShown: false,
-        animation: 'shift',
+        animation: 'fade',
         lazy: true,
         tabBarBadgeStyle: {
           backgroundColor: theme.error,
@@ -114,6 +118,7 @@ const BottomNavigator = () => {
         component={Browse}
         options={{
           title: getString('browse'),
+          freezeOnBlur: false,
           tabBarBadge: pluginsWithUpdate
             ? pluginsWithUpdate.toString()
             : undefined,

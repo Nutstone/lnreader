@@ -19,6 +19,7 @@ export type RootStackParamList = {
   BrowseMal: undefined;
   BrowseAL: undefined;
   BrowseSettings: undefined;
+  PluginDetails: { pluginId: string };
   GlobalSearchScreen: { searchText?: string };
   Migration: undefined;
   SourceNovels: { pluginId: string };
@@ -139,6 +140,10 @@ export type BrowseSettingsScreenProp = StackScreenProps<
   RootStackParamList,
   'BrowseSettings'
 >;
+export type PluginDetailsScreenProps = StackScreenProps<
+  RootStackParamList,
+  'PluginDetails'
+>;
 export type GlobalSearchScreenProps = StackScreenProps<
   RootStackParamList,
   'GlobalSearchScreen'
@@ -179,6 +184,10 @@ export type AdvancedSettingsScreenProps = StackScreenProps<
   SettingsStackParamList,
   'AdvancedSettings'
 >;
+export type LibrarySettingsScreenProps = CompositeScreenProps<
+  StackScreenProps<SettingsStackParamList, 'LibrarySettings'>,
+  StackScreenProps<MoreStackParamList, 'SettingsStack'>
+>;
 
 export type RespositorySettingsScreenProps = CompositeScreenProps<
   StackScreenProps<SettingsStackParamList, 'RespositorySettings'>,
@@ -187,6 +196,7 @@ export type RespositorySettingsScreenProps = CompositeScreenProps<
 
 declare global {
   namespace ReactNavigation {
+    // eslint-disable-next-line @typescript-eslint/no-empty-object-type
     interface RootParamList extends RootStackParamList {}
   }
 }

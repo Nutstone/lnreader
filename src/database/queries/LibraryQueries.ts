@@ -1,7 +1,35 @@
-import { eq, gt, sql, and, like, or, inArray } from 'drizzle-orm';
+import {
+  eq,
+  gt,
+  sql,
+  and,
+  like,
+  or,
+  inArray,
+  exists,
+  notExists,
+  isNotNull,
+  ne,
+} from 'drizzle-orm';
 import { dbManager } from '@database/db';
 import { novelSchema, novelCategorySchema } from '@database/schema';
 import { castInt } from '@database/manager/manager';
+import type {
+  GlobalUpdateCategoryFilters,
+  SmartUpdateFilters,
+} from '@hooks/persisted/useSettings';
+
+const smartUpdateConditions = ({
+  skipCompleted,
+  skipUnstarted,
+  skipWithUnread,
+}: SmartUpdateFilters) => [
+  skipWithUnread
+    ? sql`COALESCE(${novelSchema.chaptersUnread}, 0) = 0`
+    : undefined,
+  skipUnstarted ? isNotNull(novelSchema.lastReadAt) : undefined,
+  skipCompleted ? ne(novelSchema.status, 'Completed') : undefined,
+];
 
 /**
  * Get library novels with optional filtering and sorting using Drizzle ORM
@@ -40,11 +68,60 @@ export const getLibraryNovelsFromDb = (
 };
 
 /**
+ * Get the novels eligible for a global update in one query.
+ * An empty include list means all categories, while exclusions always win.
+ */
+export const getLibraryNovelsForGlobalUpdate = (
+  { includedCategoryIds, excludedCategoryIds }: GlobalUpdateCategoryFilters,
+  smartUpdateFilters: SmartUpdateFilters = {
+    skipCompleted: false,
+    skipUnstarted: false,
+    skipWithUnread: false,
+  },
+) => {
+  const includedNovel = includedCategoryIds.length
+    ? dbManager
+        .select({ novelId: novelCategorySchema.novelId })
+        .from(novelCategorySchema)
+        .where(
+          and(
+            eq(novelCategorySchema.novelId, novelSchema.id),
+            inArray(novelCategorySchema.categoryId, includedCategoryIds),
+          ),
+        )
+    : undefined;
+  const excludedNovel = excludedCategoryIds.length
+    ? dbManager
+        .select({ novelId: novelCategorySchema.novelId })
+        .from(novelCategorySchema)
+        .where(
+          and(
+            eq(novelCategorySchema.novelId, novelSchema.id),
+            inArray(novelCategorySchema.categoryId, excludedCategoryIds),
+          ),
+        )
+    : undefined;
+
+  return dbManager
+    .select()
+    .from(novelSchema)
+    .where(
+      and(
+        eq(novelSchema.inLibrary, true),
+        eq(novelSchema.isLocal, false),
+        includedNovel ? exists(includedNovel) : undefined,
+        excludedNovel ? notExists(excludedNovel) : undefined,
+        ...smartUpdateConditions(smartUpdateFilters),
+      ),
+    )
+    .all();
+};
+
+/**
  * Get library novels associated with a specific category using Drizzle ORM
  */
 export const getLibraryWithCategory = async (
   categoryId?: number | null,
-  onlyUpdateOngoingNovels?: boolean,
   excludeLocalNovels?: boolean,
 ) => {
   // First, get novel IDs associated with the specified category
@@ -74,7 +151,6 @@ export const getLibraryWithCategory = async (
         eq(novelSchema.inLibrary, true),
         inArray(novelSchema.id, novelIds),
         excludeLocalNovels ? eq(novelSchema.isLocal, false) : undefined,
-        onlyUpdateOngoingNovels ? eq(novelSchema.status, 'Ongoing') : undefined,
       ),
     )
     .all();

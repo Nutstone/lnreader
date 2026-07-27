@@ -12,6 +12,7 @@ import {
   getHistoryFromDb,
   insertHistory,
   deleteChapterHistory,
+  deleteNovelHistory,
   deleteAllHistory,
 } from '../HistoryQueries';
 
@@ -98,6 +99,27 @@ describe('HistoryQueries', () => {
 
       const history = await getHistoryFromDb();
       expect(history.find(h => h.id === chapterId)).toBeUndefined();
+    });
+  });
+
+  describe('deleteNovelHistory', () => {
+    it('should clear only the selected novel history', async () => {
+      const testDb = getTestDb();
+
+      const novelId1 = await insertTestNovel(testDb, { inLibrary: true });
+      const novelId2 = await insertTestNovel(testDb, { inLibrary: true });
+      const chapterId1 = await insertTestChapter(testDb, novelId1);
+      const chapterId2 = await insertTestChapter(testDb, novelId1);
+      const chapterId3 = await insertTestChapter(testDb, novelId2);
+
+      await insertHistory(chapterId1);
+      await insertHistory(chapterId2);
+      await insertHistory(chapterId3);
+      await deleteNovelHistory(novelId1);
+
+      const history = await getHistoryFromDb();
+      expect(history.map(item => item.novelId)).not.toContain(novelId1);
+      expect(history.map(item => item.novelId)).toContain(novelId2);
     });
   });
 

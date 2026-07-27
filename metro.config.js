@@ -1,55 +1,58 @@
-// Learn more https://docs.expo.io/guides/customizing-metro
-
-/**
- * Metro configuration
- * https://reactnative.dev/docs/metro
- *
- * @type {import('@react-native/metro-config').MetroConfig}
- */
-
-const path = require('path');
+const { getDefaultConfig } = require('expo/metro-config');
 const fs = require('fs');
-const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
-const defaultConfig = getDefaultConfig(__dirname);
+const path = require('path');
 
-const map = {
-  '.ico': 'image/x-icon',
-  '.html': 'text/html',
-  '.js': 'text/javascript',
-  '.json': 'application/json',
-  '.css': 'text/css',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
+const config = getDefaultConfig(__dirname);
+const readerAssetsRoot = path.resolve(__dirname, 'assets', 'reader');
+const readerAssetContentTypes = {
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.ttf': 'font/ttf',
 };
-const customConfig = {
-  resolver: {
-    unstable_enableSymlinks: true,
-    sourceExts: [...defaultConfig.resolver.sourceExts, 'sql'],
-  },
-  server: {
-    port: 8081,
-    enhanceMiddleware: (metroMiddleware, metroServer) => {
-      return (request, res, next) => {
-        const filePath = path.join(
-          __dirname,
-          'android/app/src/main',
-          request._parsedUrl.path || '',
-        );
-        const ext = path.parse(filePath).ext;
-        if (fs.existsSync(filePath)) {
-          try {
-            const data = fs.readFileSync(filePath);
-            res.setHeader('Content-type', map[ext] || 'text/plain');
-            res.end(data);
-          } catch (err) {
-            res.statusCode = 500;
-            res.end(`Error getting the file: ${err}.`);
-          }
-        } else {
-          return metroMiddleware(request, res, next);
-        }
-      };
-    },
-  },
+
+config.resolver.sourceExts.push('sql');
+
+config.server.enhanceMiddleware = metroMiddleware => {
+  return (request, response, next) => {
+    let pathname;
+
+    try {
+      pathname = decodeURIComponent(
+        new URL(request.url, 'http://localhost').pathname,
+      );
+    } catch {
+      return metroMiddleware(request, response, next);
+    }
+
+    if (!pathname.startsWith('/assets/')) {
+      return metroMiddleware(request, response, next);
+    }
+
+    const assetPath = path.resolve(
+      readerAssetsRoot,
+      pathname.slice('/assets/'.length),
+    );
+    const isReaderAsset =
+      assetPath.startsWith(`${readerAssetsRoot}${path.sep}`) &&
+      fs.existsSync(assetPath) &&
+      fs.statSync(assetPath).isFile();
+
+    if (!isReaderAsset) {
+      return metroMiddleware(request, response, next);
+    }
+
+    response.setHeader(
+      'Content-Type',
+      readerAssetContentTypes[path.extname(assetPath)] ||
+        'application/octet-stream',
+    );
+
+    if (request.method === 'HEAD') {
+      return response.end();
+    }
+
+    fs.createReadStream(assetPath).pipe(response);
+  };
 };
-module.exports = mergeConfig(defaultConfig, customConfig);
+
+module.exports = config;

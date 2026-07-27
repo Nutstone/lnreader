@@ -45,7 +45,7 @@ export const useTrackedNovel = (novelId: number | 'NO_ID') => {
       const oldData = getMMKVObject<TrackedNovel>(oldKey);
 
       if (oldData) {
-        MMKVStorage.delete(oldKey);
+        MMKVStorage.remove(oldKey);
       }
 
       setMigrated('true');
@@ -67,6 +67,7 @@ export const useTrackedNovel = (novelId: number | 'NO_ID') => {
       }
     });
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTrackedNovels(loadedNovels);
   }, [novelId, migrated, setMigrated]);
 
@@ -123,7 +124,7 @@ export const useTrackedNovel = (novelId: number | 'NO_ID') => {
       }
 
       const key = getTrackerStorageKey(novelId, trackerName);
-      MMKVStorage.delete(key);
+      MMKVStorage.remove(key);
 
       setTrackedNovels(prev => {
         const newTracked = { ...prev };

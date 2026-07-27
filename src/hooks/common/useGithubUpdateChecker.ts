@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { version } from '../../../package.json';
 import { newer } from '@utils/compareVersion';
 import { MMKVStorage } from '@utils/mmkv/mmkv';
+import DeviceInfo from 'react-native-device-info';
 
 interface GithubUpdate {
   isNewVersion: boolean;
@@ -11,9 +12,45 @@ interface GithubUpdate {
 const LAST_UPDATE_CHECK_KEY = 'LAST_UPDATE_CHECK';
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
+interface GithubReleaseAsset {
+  name?: string;
+  browser_download_url?: string;
+}
+
+const getReleaseDownloadUrl = async (
+  assets: GithubReleaseAsset[] = [],
+): Promise<string | undefined> => {
+  const apkAssets = assets.filter(asset => {
+    return asset.name?.endsWith('.apk') && asset.browser_download_url;
+  });
+  const universalAsset = apkAssets.find(asset =>
+    asset.name?.endsWith('-universal.apk'),
+  );
+
+  try {
+    const supportedAbis = await DeviceInfo.supportedAbis();
+
+    for (const abi of supportedAbis) {
+      const matchingAsset = apkAssets.find(asset =>
+        asset.name?.endsWith(`-${abi}.apk`),
+      );
+
+      if (matchingAsset?.browser_download_url) {
+        return matchingAsset.browser_download_url;
+      }
+    }
+  } catch {
+    // Fall back to the universal APK when ABI detection is unavailable.
+  }
+
+  return (
+    universalAsset?.browser_download_url || apkAssets[0]?.browser_download_url
+  );
+};
+
 export const useGithubUpdateChecker = (): GithubUpdate => {
   const latestReleaseUrl =
-    'https://api.github.com/repos/rajarsheechatterjee/lnreader/releases/latest';
+    'https://api.github.com/repos/LNReader/lnreader/releases/latest';
 
   const [checking, setChecking] = useState(true);
   const [latestRelease, setLatestRelease] = useState<any>();
@@ -51,10 +88,11 @@ export const useGithubUpdateChecker = (): GithubUpdate => {
         return;
       }
 
+      const downloadUrl = await getReleaseDownloadUrl(data.assets);
       const release = {
         tag_name: data.tag_name,
         body: data.body,
-        downloadUrl: data.assets?.[0]?.browser_download_url || undefined,
+        downloadUrl,
       };
 
       MMKVStorage.set(LAST_UPDATE_CHECK_KEY, Date.now());
@@ -77,6 +115,7 @@ export const useGithubUpdateChecker = (): GithubUpdate => {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     checkForRelease();
   }, [checkForRelease]);
 

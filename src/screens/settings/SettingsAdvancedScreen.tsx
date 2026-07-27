@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
-import { Portal, Text, TextInput } from 'react-native-paper';
+import { TextInput } from 'react-native-paper';
+import { Platform, ScrollView, StyleSheet } from 'react-native';
 
-import { useTheme, useUserAgent } from '@hooks/persisted';
+import { deleteCachedNovels, useTheme, useUserAgent } from '@hooks/persisted';
 import { showToast } from '@utils/showToast';
 
-import { deleteCachedNovels } from '@hooks/persisted/useNovel';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { useBoolean } from '@hooks';
 import ConfirmationDialog from '@components/ConfirmationDialog/ConfirmationDialog';
 import {
@@ -14,12 +14,13 @@ import {
   clearUpdates,
 } from '@database/queries/ChapterQueries';
 
-import { Appbar, Button, List, Modal, SafeAreaView } from '@components';
+import { Appbar, Dialog, List, SafeAreaView } from '@components';
 import { AdvancedSettingsScreenProps } from '@navigators/types';
-import { ScrollView, StyleSheet, View } from 'react-native';
 import { getUserAgentSync } from 'react-native-device-info';
-import CookieManager from '@react-native-cookies/cookies';
+import CookieManager from '@preeternal/react-native-cookie-manager';
 import { store } from '@plugins/helpers/storage';
+import NativeDoh, { DohProviderId } from '@modules/native-doh';
+import DohProviderDialog, { DOH_PROVIDERS } from './DohProviderDialog';
 
 const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
   const theme = useTheme();
@@ -31,6 +32,9 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
 
   const { userAgent, setUserAgent } = useUserAgent();
   const [userAgentInput, setUserAgentInput] = useState(userAgent);
+  const [dohProvider, setDohProvider] = useState<DohProviderId>(
+    NativeDoh?.getProvider() ?? 0,
+  );
   /**
    * Confirm Clear Database Dialog
    */
@@ -53,6 +57,16 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
     setTrue: showUserAgentModal,
     setFalse: hideUserAgentModal,
   } = useBoolean();
+
+  const {
+    value: dohProviderDialogVisible,
+    setTrue: showDohProviderDialog,
+    setFalse: hideDohProviderDialog,
+  } = useBoolean();
+
+  const dohProviderLabel =
+    DOH_PROVIDERS.find(provider => provider.id === dohProvider)?.label ??
+    DOH_PROVIDERS[0].label;
 
   return (
     <SafeAreaView excludeTop>
@@ -87,11 +101,24 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
             onPress={showDeleteReadChaptersDialog}
             theme={theme}
           />
+        </List.Section>
+        <List.Section>
+          <List.SubHeader theme={theme}>
+            {getString('advancedSettingsScreen.networking')}
+          </List.SubHeader>
           <List.Item
             title={getString('webview.clearCookies')}
             onPress={clearCookies}
             theme={theme}
           />
+          {Platform.OS === 'android' && NativeDoh ? (
+            <List.Item
+              title={getString('advancedSettingsScreen.dnsOverHttps')}
+              description={dohProviderLabel}
+              onPress={showDohProviderDialog}
+              theme={theme}
+            />
+          ) : null}
           <List.Item
             title={getString('advancedSettingsScreen.userAgent')}
             description={userAgent}
@@ -100,40 +127,53 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
           />
         </List.Section>
       </ScrollView>
-      <Portal>
-        <ConfirmationDialog
-          message={getString(
-            'advancedSettingsScreen.deleteReadChaptersDialogTitle',
-          )}
-          visible={deleteReadChaptersDialog}
-          onSubmit={deleteReadChaptersFromDb}
-          onDismiss={hideDeleteReadChaptersDialog}
-          theme={theme}
-        />
-        <ConfirmationDialog
-          message={getString('advancedSettingsScreen.clearDatabaseWarning')}
-          visible={clearDatabaseDialog}
-          onSubmit={deleteCachedNovels}
-          onDismiss={hideClearDatabaseDialog}
-          theme={theme}
-        />
-        <ConfirmationDialog
-          message={getString('advancedSettingsScreen.clearUpdatesWarning')}
-          visible={clearUpdatesDialog}
-          onSubmit={() => {
-            clearUpdates();
-            showToast(getString('advancedSettingsScreen.clearUpdatesMessage'));
-            hideClearUpdatesDialog();
-          }}
-          onDismiss={hideClearUpdatesDialog}
-          theme={theme}
-        />
+      <ConfirmationDialog
+        title={getString('advancedSettingsScreen.deleteReadChapters')}
+        confirmLabel={getString('common.delete')}
+        message={getString(
+          'advancedSettingsScreen.deleteReadChaptersDialogTitle',
+        )}
+        visible={deleteReadChaptersDialog}
+        onConfirm={deleteReadChaptersFromDb}
+        onDismiss={hideDeleteReadChaptersDialog}
+      />
+      <ConfirmationDialog
+        title={getString('advancedSettingsScreen.clearCachedNovels')}
+        confirmLabel={getString('common.clear')}
+        message={getString('advancedSettingsScreen.clearDatabaseWarning')}
+        visible={clearDatabaseDialog}
+        onConfirm={deleteCachedNovels}
+        onDismiss={hideClearDatabaseDialog}
+      />
+      <ConfirmationDialog
+        title={getString('advancedSettingsScreen.clearUpdatesTab')}
+        confirmLabel={getString('common.clear')}
+        message={getString('advancedSettingsScreen.clearUpdatesWarning')}
+        visible={clearUpdatesDialog}
+        onConfirm={() => {
+          clearUpdates();
+          showToast(getString('advancedSettingsScreen.clearUpdatesMessage'));
+          hideClearUpdatesDialog();
+        }}
+        onDismiss={hideClearUpdatesDialog}
+      />
 
-        <Modal visible={userAgentModalVisible} onDismiss={hideUserAgentModal}>
-          <Text style={[styles.modalTitle, { color: theme.onSurface }]}>
-            {getString('advancedSettingsScreen.userAgent')}
-          </Text>
-          <Text style={{ color: theme.onSurfaceVariant }}>{userAgent}</Text>
+      <DohProviderDialog
+        provider={dohProvider}
+        visible={dohProviderDialogVisible}
+        onDismiss={hideDohProviderDialog}
+        onSelect={setDohProvider}
+      />
+
+      <Dialog.Root
+        visible={userAgentModalVisible}
+        onDismiss={hideUserAgentModal}
+      >
+        <Dialog.Title>
+          {getString('advancedSettingsScreen.userAgent')}
+        </Dialog.Title>
+        <Dialog.Description>{userAgent}</Dialog.Description>
+        <Dialog.Content>
           <TextInput
             multiline
             mode="outlined"
@@ -144,27 +184,24 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
             style={[{ color: theme.onSurface }, styles.textInput]}
             theme={{ colors: { ...theme } }}
           />
-          <View style={styles.buttonGroup}>
-            <Button
-              onPress={() => {
-                setUserAgent(userAgentInput);
-                hideUserAgentModal();
-              }}
-              style={styles.button}
-              title={getString('common.save')}
-              mode="contained"
-            />
-            <Button
-              style={styles.button}
-              onPress={() => {
-                setUserAgent(getUserAgentSync());
-                hideUserAgentModal();
-              }}
-              title={getString('common.reset')}
-            />
-          </View>
-        </Modal>
-      </Portal>
+        </Dialog.Content>
+        <Dialog.Actions>
+          <Dialog.Action
+            onPress={() => {
+              setUserAgent(getUserAgentSync());
+              hideUserAgentModal();
+            }}
+            title={getString('common.reset')}
+          />
+          <Dialog.Action
+            onPress={() => {
+              setUserAgent(userAgentInput);
+              hideUserAgentModal();
+            }}
+            title={getString('common.save')}
+          />
+        </Dialog.Actions>
+      </Dialog.Root>
     </SafeAreaView>
   );
 };
@@ -172,23 +209,9 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
 export default AdvancedSettings;
 
 const styles = StyleSheet.create({
-  button: {
-    flex: 1,
-    marginHorizontal: 8,
-    marginTop: 16,
-  },
-  buttonGroup: {
-    flexDirection: 'row-reverse',
-  },
-  modalTitle: {
-    fontSize: 24,
-    marginBottom: 16,
-  },
   textInput: {
     borderRadius: 14,
     fontSize: 12,
     height: 120,
-    marginBottom: 8,
-    marginTop: 16,
   },
 });

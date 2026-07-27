@@ -1,14 +1,15 @@
-import React from 'react';
 import { useTheme } from '@hooks/persisted';
 import { Appbar, List, SafeAreaView } from '@components';
 import { useBoolean } from '@hooks';
 import { BackupSettingsScreenProps } from '@navigators/types';
 import GoogleDriveModal from './Components/GoogleDriveModal';
 import SelfHostModal from './Components/SelfHostModal';
-import ServiceManager from '@services/ServiceManager';
+import { backgroundTasks } from '@services/backgroundTasks';
 import { ScrollView } from 'react-native-gesture-handler';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { StyleSheet } from 'react-native';
+import dayjs from 'dayjs';
+import NativeFile from '@modules/native-file';
 
 const BackupSettings = ({ navigation }: BackupSettingsScreenProps) => {
   const theme = useTheme();
@@ -17,6 +18,36 @@ const BackupSettings = ({ navigation }: BackupSettingsScreenProps) => {
     setFalse: closeGoogleDriveModal,
     setTrue: openGoogleDriveModal,
   } = useBoolean();
+
+  const createLocalBackup = async () => {
+    try {
+      const filename = `lnreader_backup_${dayjs().format(
+        'YYYY-MM-DD_HH_mm',
+      )}.zip`;
+      const destinationUri = await NativeFile.createDocument(
+        filename,
+        'application/zip',
+      );
+      backgroundTasks.enqueue({
+        name: 'LOCAL_BACKUP',
+        data: { destinationUri },
+      });
+    } catch {
+      // Closing Android's document picker intentionally leaves the queue unchanged.
+    }
+  };
+
+  const restoreLocalBackup = async () => {
+    try {
+      const sourceUri = await NativeFile.pickDocument('application/zip');
+      backgroundTasks.enqueue({
+        name: 'LOCAL_RESTORE',
+        data: { sourceUri },
+      });
+    } catch {
+      // Closing Android's document picker intentionally leaves the queue unchanged.
+    }
+  };
 
   const {
     value: selfHostModalVisible,
@@ -55,17 +86,13 @@ const BackupSettings = ({ navigation }: BackupSettingsScreenProps) => {
           <List.Item
             title={getString('backupScreen.createBackup')}
             description={getString('backupScreen.createBackupDesc')}
-            onPress={() => {
-              ServiceManager.manager.addTask({ name: 'LOCAL_BACKUP' });
-            }}
+            onPress={createLocalBackup}
             theme={theme}
           />
           <List.Item
             title={getString('backupScreen.restoreBackup')}
             description={getString('backupScreen.restoreBackupDesc')}
-            onPress={() => {
-              ServiceManager.manager.addTask({ name: 'LOCAL_RESTORE' });
-            }}
+            onPress={restoreLocalBackup}
             theme={theme}
           />
           <List.InfoItem

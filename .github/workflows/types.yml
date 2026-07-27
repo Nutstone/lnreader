@@ -1,36 +1,39 @@
-# Temporarily Disabled
 name: Type Check
 on:
-  workflow_dispatch:
-  # push:
-  #   branches:
-  #     - master
-  # pull_request:
-  #   branches:
-  #     - master
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    name: Type Checking
+  type-check:
+    name: TypeScript
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
-      - name: Get pnpm Store Directory
+      - name: Get pnpm Store Path
         shell: bash
         run: |
           echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
-      - name: Setup pnpm Cache
+      - name: Cache pnpm
         uses: actions/cache@v4
         with:
           path: ${{ env.STORE_PATH }}
@@ -40,6 +43,9 @@ jobs:
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Generate Environment
+        run: pnpm generate:env:debug
 
       - name: Check Types
         run: pnpm run type-check

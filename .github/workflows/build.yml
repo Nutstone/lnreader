@@ -1,94 +1,158 @@
-name: Build
+name: Build Preview
+
 on:
-  push:
-    branches:
-      - master
+  schedule:
+    - cron: '30 0 * * *'
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CI: 'true'
+  EXPO_NO_TELEMETRY: '1'
+  NODE_ENV: 'production'
+
 jobs:
+  check-preview:
+    name: Check Preview
+    runs-on: ubuntu-24.04
+    outputs:
+      should-build: ${{ steps.preview.outputs.should-build }}
+
+    steps:
+      - name: Check For Existing Preview
+        id: preview
+        uses: actions/github-script@v8
+        with:
+          script: |
+            if (context.eventName === 'workflow_dispatch') {
+              core.notice('Manual dispatch requested; building a new preview.')
+              core.setOutput('should-build', 'true')
+              return
+            }
+
+            const shortSha = context.sha.slice(0, 8)
+            const artifactName = `LNReader-${shortSha}`
+            const { data: { artifacts } } = await github.rest.actions.listArtifactsForRepo(
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: artifactName,
+                per_page: 100,
+              },
+            )
+            const previewExists = artifacts.some(
+              artifact =>
+                !artifact.expired &&
+                artifact.workflow_run?.head_sha === context.sha,
+            )
+
+            core.notice(
+              previewExists
+                ? `A preview artifact already exists for ${shortSha}.`
+                : `No preview artifact exists for ${shortSha}; starting a build.`,
+            )
+            core.setOutput('should-build', String(!previewExists))
+
   build-android:
-    name: Build App
-    runs-on: ubuntu-latest
+    name: APK
+    needs: check-preview
+    if: needs.check-preview.outputs.should-build == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
+
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set Up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm Store Directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm Cache
-        uses: actions/cache@v4
+      - name: Set Up Java
+        uses: actions/setup-java@v5
         with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
+          distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
-
       - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Create Environment File
-        run: |
-          cat > .env << EOF
-          MYANIMELIST_CLIENT_ID=${{ vars.MYANIMELIST_CLIENT_ID }}
-          ANILIST_CLIENT_ID=${{ vars.ANILIST_CLIENT_ID }}
-          GIT_HASH=$(git rev-parse --short HEAD)
-          RELEASE_DATE=$(date --utc +'%d/%m/%y %I:%M %p %Z')
-          BUILD_TYPE=Github Action
-          EOF
-
-      - name: Make Gradlew Executable
-        run: cd android && chmod +x ./gradlew
-
-      - name: Set Environment Variables
-        run: |
-          set -x
-          echo "COMMIT_COUNT=$(git rev-list --count HEAD)" >> $GITHUB_ENV
-          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-      - name: Build Android Release
+      - name: Configure Release Environment
         env:
-          COMMIT_COUNT: ${{ env.COMMIT_COUNT }}
-          COMMIT_ID: ${{ env.COMMIT_ID }}
+          MYANIMELIST_CLIENT_ID: ${{ vars.MYANIMELIST_CLIENT_ID }}
+          ANILIST_CLIENT_ID: ${{ vars.ANILIST_CLIENT_ID }}
         run: |
-          sed -i 's/lnreader/lnreader-r${{ env.COMMIT_COUNT }}(${{ env.COMMIT_ID }})/g' android/app/src/main/res/values/strings.xml
-          cd android && ./gradlew assembleRelease -PcustomAppId=com.rajarsheechatterjee.LNReader.commit_${{ env.COMMIT_ID }} --build-cache
-          mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/LNReader-r${{ env.COMMIT_COUNT }}-${{ env.COMMIT_ID }}.apk
+          pnpm generate:env:release \
+            --build-type "GitHub Action" \
+            --node-env "production" \
+            --myanimelist-client-id "$MYANIMELIST_CLIENT_ID" \
+            --anilist-client-id "$ANILIST_CLIENT_ID"
 
-      - name: Upload Release Artifact
-        env:
-          COMMIT_COUNT: ${{ env.COMMIT_COUNT }}
-          COMMIT_ID: ${{ env.COMMIT_ID }}
+      - name: Generate Native Android Project
+        run: |
+          pnpm exec expo prebuild \
+            --platform android \
+            --clean \
+            --no-install \
+            --non-interactive
+
+      - name: Configure Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: enhanced
+          cache-read-only: >-
+            ${{ github.ref_name != github.event.repository.default_branch }}
+          cache-cleanup: on-success
+          add-job-summary: always
+
+      - name: Generate Preview Metadata
+        run: |
+          short_sha="${GITHUB_SHA::8}"
+          base_version_name="$(node --print "require('./app.json').expo.version")"
+          base_version_code="$(node --print "require('./app.json').expo.android.versionCode")"
+
+          echo "PRERELEASE_VERSION_CODE=$((base_version_code + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "PRERELEASE_VERSION_NAME=${base_version_name}-pre.r${GITHUB_RUN_NUMBER}.${short_sha}" >> "$GITHUB_ENV"
+          echo "PRERELEASE_ARTIFACT_NAME=LNReader-${short_sha}" >> "$GITHUB_ENV"
+          echo "PRERELEASE_APK_NAME=LNReader-r${GITHUB_RUN_NUMBER}-${short_sha}.apk" >> "$GITHUB_ENV"
+
+      - name: Build Preview APK
+        working-directory: android
+        run: |
+          mkdir -p app/build/intermediates/sourcemaps/react/preRelease
+
+          ./gradlew :app:assemblePreRelease \
+            --build-cache \
+            --parallel \
+            -PpreReleaseVersionCode="$PRERELEASE_VERSION_CODE" \
+            -PpreReleaseVersionName="$PRERELEASE_VERSION_NAME" \
+            --stacktrace
+
+          mv \
+            app/build/outputs/apk/preRelease/app-preRelease.apk \
+            "app/build/outputs/apk/preRelease/$PRERELEASE_APK_NAME"
+
+      - name: Upload Preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: LNReader-r${{ env.COMMIT_COUNT }}-${{ env.COMMIT_ID }}
-          path: android/app/build/outputs/apk/release/LNReader-r${{ env.COMMIT_COUNT }}-${{ env.COMMIT_ID }}.apk
-          retention-days: 30
+          name: ${{ env.PRERELEASE_ARTIFACT_NAME }}
+          path: android/app/build/outputs/apk/preRelease/${{ env.PRERELEASE_APK_NAME }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

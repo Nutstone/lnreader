@@ -23,6 +23,7 @@ import {
   getCustomPages,
   getPageChapters,
   getChapterCount,
+  getChapterCountSync,
   getPageChaptersBatched,
   getPrevChapter,
   getNextChapter,
@@ -42,6 +43,10 @@ import {
   markPreviuschaptersRead,
   markPreviousChaptersUnread,
   clearUpdates,
+  getFirstUnreadChapter,
+  getNovelScanlators,
+  getNovelScanlatorsSync,
+  increaseTimeSpent,
 } from '../ChapterQueries';
 
 describe('ChapterQueries', () => {
@@ -255,6 +260,29 @@ describe('ChapterQueries', () => {
       expect(chapters[0].position).toBe(0);
     });
 
+    it('should insert scanlator string and array correctly', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+
+      await insertChapters(novelId, [
+        {
+          path: '/chapter/1',
+          name: 'Chapter 1',
+          scanlator: 'Translator Team A',
+        },
+        {
+          path: '/chapter/2',
+          name: 'Chapter 2',
+          scanlator: ['Group X', 'Group Y', ''],
+        },
+      ]);
+
+      const chapters = await getNovelChapters(novelId);
+      expect(chapters).toHaveLength(2);
+      expect(chapters[0].scanlator).toBe('Translator Team A');
+      expect(chapters[1].scanlator).toBe('Group X, Group Y');
+    });
+
     it('should insert multiple chapters', async () => {
       const testDb = getTestDb();
       const novelId = await insertTestNovel(testDb, { inLibrary: true });
@@ -323,6 +351,89 @@ describe('ChapterQueries', () => {
 
       const chapters = await getNovelChapters(novelId);
       expect(chapters[0].name).toBe('Chapter 1');
+    });
+
+    it('should force page override option when inserting chapters', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+
+      await insertChapters(
+        novelId,
+        [
+          {
+            path: '/chapter/1',
+            name: 'Chapter 1',
+            page: '99',
+          },
+        ],
+        { page: '2' },
+      );
+
+      const chapters = await getNovelChapters(novelId);
+      expect(chapters).toHaveLength(1);
+      expect(chapters[0].page).toBe('2');
+    });
+
+    it('should set updatedTime when touchUpdatedTime is enabled on insert', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+
+      await insertChapters(
+        novelId,
+        [
+          {
+            path: '/chapter/1',
+            name: 'Chapter 1',
+          },
+        ],
+        { touchUpdatedTime: true },
+      );
+
+      const chapters = await getNovelChapters(novelId);
+      expect(chapters).toHaveLength(1);
+      expect(chapters[0].updatedTime).not.toBeNull();
+    });
+
+    it('should set releaseTime to null when preferNullReleaseTime is enabled', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+
+      await insertChapters(
+        novelId,
+        [
+          {
+            path: '/chapter/1',
+            name: 'Chapter 1',
+          },
+        ],
+        { preferNullReleaseTime: true },
+      );
+
+      const chapters = await getNovelChapters(novelId);
+      expect(chapters).toHaveLength(1);
+      expect(chapters[0].releaseTime).toBeNull();
+    });
+
+    it('should backfill chapterNumber with index fallback over existing null', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+
+      await insertTestChapter(testDb, novelId, {
+        path: '/chapter/1',
+        chapterNumber: null,
+      });
+
+      await insertChapters(novelId, [
+        {
+          path: '/chapter/1',
+          name: 'Chapter 1',
+        },
+      ]);
+
+      const chapters = await getNovelChapters(novelId);
+      expect(chapters).toHaveLength(1);
+      expect(chapters[0].chapterNumber).toBe(1);
+      expect(chapters[0].chapterNumber).not.toBeNull();
     });
   });
 
@@ -712,6 +823,54 @@ describe('ChapterQueries', () => {
 
       expect(result).toBe(2);
     });
+
+    it('should return filtered count when filter is provided', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      await insertTestChapter(testDb, novelId, {
+        page: '1',
+        unread: true,
+      });
+      await insertTestChapter(testDb, novelId, {
+        page: '1',
+        unread: false,
+      });
+      await insertTestChapter(testDb, novelId, {
+        page: '1',
+        unread: true,
+      });
+
+      const total = await getChapterCount(novelId, '1');
+      expect(total).toBe(3);
+
+      const unreadOnly = await getChapterCount(novelId, '1', ['not-read']);
+      expect(unreadOnly).toBe(2);
+
+      const readOnly = await getChapterCount(novelId, '1', ['read']);
+      expect(readOnly).toBe(1);
+    });
+
+    it('should return total count when no filter is provided', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      await insertTestChapter(testDb, novelId, {
+        page: '1',
+        unread: true,
+      });
+      await insertTestChapter(testDb, novelId, {
+        page: '1',
+        unread: false,
+      });
+
+      const result = await getChapterCount(novelId, '1');
+      expect(result).toBe(2);
+
+      const noFilter = await getChapterCount(novelId, '1', undefined);
+      expect(noFilter).toBe(2);
+
+      const emptyFilter = await getChapterCount(novelId, '1', []);
+      expect(emptyFilter).toBe(2);
+    });
   });
 
   describe('getPageChaptersBatched', () => {
@@ -793,6 +952,41 @@ describe('ChapterQueries', () => {
 
       expect(result?.id).toBe(chapterId2);
     });
+
+    it('should exclude chapters with scanlators in excludedScanlators list', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      const chapterId1 = await insertTestChapter(testDb, novelId, {
+        page: '1',
+        position: 0,
+        scanlator: 'Scan A',
+      });
+      const chapterId2 = await insertTestChapter(testDb, novelId, {
+        page: '1',
+        position: 1,
+        scanlator: 'Scan B',
+      });
+      await insertTestChapter(testDb, novelId, {
+        page: '1',
+        position: 2,
+        scanlator: 'Scan C',
+      });
+
+      // From chapter 3, previous should be chapter 2 (Scan B) if nothing excluded
+      const resultNormal = await getPrevChapter(novelId, 2, '1');
+      expect(resultNormal?.id).toBe(chapterId2);
+
+      // From chapter 3, previous should be chapter 1 (Scan A) if Scan B is excluded
+      const resultExcludeB = await getPrevChapter(novelId, 2, '1', ['Scan B']);
+      expect(resultExcludeB?.id).toBe(chapterId1);
+
+      // From chapter 3, previous should be undefined if both Scan B and Scan A are excluded
+      const resultExcludeBoth = await getPrevChapter(novelId, 2, '1', [
+        'Scan B',
+        'Scan A',
+      ]);
+      expect(resultExcludeBoth).toBeUndefined();
+    });
   });
 
   describe('getNextChapter', () => {
@@ -870,6 +1064,65 @@ describe('ChapterQueries', () => {
 
       expect(result?.id).toBe(chapterId2);
     });
+
+    it('should exclude chapters with scanlators in excludedScanlators list', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      await insertTestChapter(testDb, novelId, {
+        page: '1',
+        position: 0,
+        scanlator: 'Scan A',
+      });
+      const chapterId2 = await insertTestChapter(testDb, novelId, {
+        page: '1',
+        position: 1,
+        scanlator: 'Scan B',
+      });
+      const chapterId3 = await insertTestChapter(testDb, novelId, {
+        page: '1',
+        position: 2,
+        scanlator: 'Scan C',
+      });
+
+      // From chapter 1, next should be chapter 2 (Scan B) if nothing excluded
+      const resultNormal = await getNextChapter(novelId, 0, '1');
+      expect(resultNormal?.id).toBe(chapterId2);
+
+      // From chapter 1, next should be chapter 3 (Scan C) if Scan B is excluded
+      const resultExcludeB = await getNextChapter(novelId, 0, '1', ['Scan B']);
+      expect(resultExcludeB?.id).toBe(chapterId3);
+
+      // From chapter 1, next should be undefined if both Scan B and Scan C are excluded
+      const resultExcludeBoth = await getNextChapter(novelId, 0, '1', [
+        'Scan B',
+        'Scan C',
+      ]);
+      expect(resultExcludeBoth).toBeUndefined();
+    });
+
+    it('should cross page boundaries when the first chapter of the next page is excluded', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      await insertTestChapter(testDb, novelId, {
+        page: '1',
+        position: 0,
+      });
+      // Page 2, position 0 is excluded scanlator
+      await insertTestChapter(testDb, novelId, {
+        page: '2',
+        position: 0,
+        scanlator: 'Scan A',
+      });
+      // Page 2, position 1 is not excluded
+      const nextPageChapter1 = await insertTestChapter(testDb, novelId, {
+        page: '2',
+        position: 1,
+        scanlator: 'Scan B',
+      });
+
+      const result = await getNextChapter(novelId, 0, '1', ['Scan A']);
+      expect(result?.id).toBe(nextPageChapter1);
+    });
   });
 
   describe('getDownloadedChapters', () => {
@@ -892,43 +1145,79 @@ describe('ChapterQueries', () => {
   });
 
   describe('getNovelDownloadedChapters', () => {
-    it('should return downloaded chapters for a novel', async () => {
+    it('should return downloaded chapters in page and position order', async () => {
       const testDb = getTestDb();
       const novelId = await insertTestNovel(testDb, { inLibrary: true });
       await insertTestChapter(testDb, novelId, {
         isDownloaded: true,
+        page: '10',
+        position: 1,
+      });
+      await insertTestChapter(testDb, novelId, {
+        isDownloaded: true,
+        page: '2',
+        position: 1,
+      });
+      await insertTestChapter(testDb, novelId, {
+        isDownloaded: true,
+        page: '1',
+        position: 1,
+      });
+      await insertTestChapter(testDb, novelId, {
+        isDownloaded: true,
+        page: '2',
         position: 0,
       });
       await insertTestChapter(testDb, novelId, {
         isDownloaded: false,
-        position: 1,
+        page: '1',
+        position: 0,
       });
 
       const result = await getNovelDownloadedChapters(novelId);
 
-      expect(result).toHaveLength(1);
-      expect(result[0].isDownloaded).toBe(true);
+      expect(result.map(chapter => [chapter.page, chapter.position])).toEqual([
+        ['1', 1],
+        ['2', 0],
+        ['2', 1],
+        ['10', 1],
+      ]);
     });
 
-    it('should filter by position range', async () => {
+    it('should apply a range to the ordered downloaded chapters', async () => {
       const testDb = getTestDb();
       const novelId = await insertTestNovel(testDb, { inLibrary: true });
       await insertTestChapter(testDb, novelId, {
+        name: 'Chapter 1',
         isDownloaded: true,
+        page: '1',
         position: 0,
       });
       await insertTestChapter(testDb, novelId, {
+        name: 'Chapter 2',
         isDownloaded: true,
+        page: '1',
         position: 1,
       });
       await insertTestChapter(testDb, novelId, {
+        name: 'Chapter 3',
         isDownloaded: true,
-        position: 2,
+        page: '2',
+        position: 0,
+      });
+      await insertTestChapter(testDb, novelId, {
+        name: 'Chapter 4',
+        isDownloaded: true,
+        page: '2',
+        position: 1,
       });
 
-      const result = await getNovelDownloadedChapters(novelId, 0, 1);
+      const result = await getNovelDownloadedChapters(novelId, 2, 3);
 
-      expect(result.length).toBeLessThanOrEqual(2);
+      expect(result.map(chapter => chapter.name)).toEqual([
+        'Chapter 2',
+        'Chapter 3',
+      ]);
     });
   });
 
@@ -978,6 +1267,47 @@ describe('ChapterQueries', () => {
 
       expect(result.every(c => c.isDownloaded === true)).toBe(true);
     });
+
+    it('should filter updates by their overview date', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      await insertTestChapter(testDb, novelId, {
+        updatedTime: '2024-01-01 10:00:00',
+      });
+      await insertTestChapter(testDb, novelId, {
+        updatedTime: '2024-01-02 10:00:00',
+      });
+
+      const result = await getDetailedUpdatesFromDb(
+        novelId,
+        false,
+        '2024-01-01',
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.updatedTime).toBe('2024-01-01 10:00:00');
+    });
+
+    it('should limit detailed updates to the newest results', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      await insertTestChapter(testDb, novelId, {
+        updatedTime: '2024-01-01 10:00:00',
+      });
+      await insertTestChapter(testDb, novelId, {
+        updatedTime: '2024-01-01 11:00:00',
+      });
+
+      const result = await getDetailedUpdatesFromDb(
+        novelId,
+        false,
+        '2024-01-01',
+        1,
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.updatedTime).toBe('2024-01-01 11:00:00');
+    });
   });
 
   describe('isChapterDownloaded', () => {
@@ -1001,6 +1331,194 @@ describe('ChapterQueries', () => {
 
       const result = isChapterDownloaded(chapterId);
       expect(result).toBe(false);
+    });
+  });
+
+  describe('getFirstUnreadChapter', () => {
+    it('should return first unread chapter', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      await insertTestChapter(testDb, novelId, { unread: false, position: 0 });
+      const chapterId = await insertTestChapter(testDb, novelId, {
+        unread: true,
+        position: 1,
+      });
+      await insertTestChapter(testDb, novelId, { unread: true, position: 2 });
+
+      const result = getFirstUnreadChapter(novelId);
+      expect(result).toBeDefined();
+      expect(result?.id).toBe(chapterId);
+    });
+
+    it('should filter out excluded scanlators', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      await insertTestChapter(testDb, novelId, {
+        unread: true,
+        position: 0,
+        scanlator: 'Scan A',
+      });
+      const chapterId = await insertTestChapter(testDb, novelId, {
+        unread: true,
+        position: 1,
+        scanlator: 'Scan B',
+      });
+
+      const result = getFirstUnreadChapter(novelId, undefined, undefined, [
+        'Scan A',
+      ]);
+      expect(result).toBeDefined();
+      expect(result?.id).toBe(chapterId);
+    });
+  });
+
+  describe('getChapterCount and getChapterCountSync with excluded scanlators', () => {
+    it('should exclude chapters with scanlators in excludedScanlators list', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      await insertTestChapter(testDb, novelId, {
+        scanlator: 'Scan A',
+        position: 0,
+      });
+      await insertTestChapter(testDb, novelId, {
+        scanlator: 'Scan B',
+        position: 1,
+      });
+      await insertTestChapter(testDb, novelId, {
+        scanlator: null,
+        position: 2,
+      });
+      await insertTestChapter(testDb, novelId, { scanlator: '', position: 3 });
+
+      // Count without exclusions should be 4
+      const countAll = await getChapterCount(novelId);
+      expect(countAll).toBe(4);
+      const countAllSync = getChapterCountSync(novelId);
+      expect(countAllSync).toBe(4);
+
+      // Exclude 'Scan A' -> count should be 3 (Scan B, null, '')
+      const countExcludeA = await getChapterCount(novelId, '1', undefined, [
+        'Scan A',
+      ]);
+      expect(countExcludeA).toBe(3);
+      const countExcludeASync = getChapterCountSync(novelId, '1', undefined, [
+        'Scan A',
+      ]);
+      expect(countExcludeASync).toBe(3);
+
+      // Exclude 'Scan A' and 'Scan B' -> count should be 2 (null, '')
+      const countExcludeBoth = await getChapterCount(novelId, '1', undefined, [
+        'Scan A',
+        'Scan B',
+      ]);
+      expect(countExcludeBoth).toBe(2);
+      const countExcludeBothSync = getChapterCountSync(
+        novelId,
+        '1',
+        undefined,
+        ['Scan A', 'Scan B'],
+      );
+      expect(countExcludeBothSync).toBe(2);
+    });
+  });
+
+  describe('getNovelScanlators', () => {
+    it('should return unique scanlators', async () => {
+      const testDb = getTestDb();
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      await insertTestChapter(testDb, novelId, { scanlator: 'Scan A' });
+      await insertTestChapter(testDb, novelId, { scanlator: 'Scan B' });
+      await insertTestChapter(testDb, novelId, { scanlator: 'Scan A' }); // Duplicate
+      await insertTestChapter(testDb, novelId, { scanlator: '' }); // Empty
+      await insertTestChapter(testDb, novelId, { scanlator: null }); // Null
+
+      const scanlators = await getNovelScanlators(novelId);
+      expect(scanlators).toHaveLength(2);
+      expect(scanlators).toContain('Scan A');
+      expect(scanlators).toContain('Scan B');
+
+      const scanlatorsSync = getNovelScanlatorsSync(novelId);
+      expect(scanlatorsSync).toHaveLength(2);
+      expect(scanlatorsSync).toContain('Scan A');
+      expect(scanlatorsSync).toContain('Scan B');
+    });
+  });
+  describe('increaseTimeSpent', () => {
+    it('should increase timeSpent from default 0', async () => {
+      const testDb = getTestDb();
+
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      const chapterId = await insertTestChapter(testDb, novelId, {});
+
+      await increaseTimeSpent(chapterId, 500);
+
+      const chapters = await getNovelChapters(novelId);
+      const chapter = chapters.find(c => c.id === chapterId);
+      expect(chapter?.timeSpent).toBe(500);
+    });
+
+    it('should accumulate timeSpent across multiple calls', async () => {
+      const testDb = getTestDb();
+
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      const chapterId = await insertTestChapter(testDb, novelId, {});
+
+      await increaseTimeSpent(chapterId, 300);
+      await increaseTimeSpent(chapterId, 200);
+
+      const chapters = await getNovelChapters(novelId);
+      const chapter = chapters.find(c => c.id === chapterId);
+      expect(chapter?.timeSpent).toBe(500);
+    });
+
+    it('should add to a pre-existing non-zero timeSpent', async () => {
+      const testDb = getTestDb();
+
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      const chapterId = await insertTestChapter(testDb, novelId, {
+        timeSpent: 1000,
+      });
+
+      await increaseTimeSpent(chapterId, 250);
+
+      const chapters = await getNovelChapters(novelId);
+      const chapter = chapters.find(c => c.id === chapterId);
+      expect(chapter?.timeSpent).toBe(1250);
+    });
+
+    it('should only update the targeted chapter', async () => {
+      const testDb = getTestDb();
+
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      const chapterId1 = await insertTestChapter(testDb, novelId, {});
+      const chapterId2 = await insertTestChapter(testDb, novelId, {});
+
+      await increaseTimeSpent(chapterId1, 400);
+
+      const chapters = await getNovelChapters(novelId);
+      const chapter1 = chapters.find(c => c.id === chapterId1);
+      const chapter2 = chapters.find(c => c.id === chapterId2);
+      expect(chapter1?.timeSpent).toBe(400);
+      expect(chapter2?.timeSpent).toBe(0);
+    });
+
+    it('should be a no-op for a non-existent chapterId', async () => {
+      await expect(increaseTimeSpent(999999, 100)).resolves.not.toThrow();
+    });
+
+    it('should handle a timeSpent value of 0', async () => {
+      const testDb = getTestDb();
+
+      const novelId = await insertTestNovel(testDb, { inLibrary: true });
+      const chapterId = await insertTestChapter(testDb, novelId, {
+        timeSpent: 750,
+      });
+
+      await increaseTimeSpent(chapterId, 0);
+
+      const chapters = await getNovelChapters(novelId);
+      const chapter = chapters.find(c => c.id === chapterId);
+      expect(chapter?.timeSpent).toBe(750);
     });
   });
 });

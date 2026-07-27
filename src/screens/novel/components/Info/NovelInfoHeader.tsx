@@ -20,11 +20,11 @@ import { Row } from '@components/Common';
 import ReadButton from './ReadButton';
 import NovelSummary from '../NovelSummary/NovelSummary';
 import NovelScreenButtonGroup from '../NovelScreenButtonGroup/NovelScreenButtonGroup';
-import { getString } from '@strings/translations';
+import { getString } from '@i18n/translations';
 import { filterColor } from '@theme/colors';
 import { ChapterInfo, NovelInfo as NovelData } from '@database/types';
 import { ThemeColors } from '@theme/types';
-import { GlobalSearchScreenProps } from '@navigators/types';
+import { NovelScreenProps } from '@navigators/types';
 import { BottomSheetModalMethods } from '@gorhom/bottom-sheet/lib/typescript/types';
 import { UseBooleanReturnType } from '@hooks';
 import { useAppSettings } from '@hooks/persisted';
@@ -37,37 +37,26 @@ import {
   NovelMetaSkeleton,
   VerticalBarSkeleton,
 } from '@components/Skeleton/Skeleton';
-import { useNovelContext } from '@screens/novel/NovelContext';
-import Animated, {
-  useAnimatedProps,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
-import useLoadingColors from '@components/Skeleton/useLoadingColors';
-
-const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 import { ChapterFilterKey } from '@database/constants';
+import { useNovelAction } from '@screens/novel/NovelContext';
+import { useNavigation } from '@react-navigation/native';
+import {
+  ButtonGroupSkeleton,
+  ChapterCountSkeleton,
+  NovelDetailsSkeleton,
+} from './NovelInfoSkeletons';
 
 interface NovelInfoHeaderProps {
-  chapters: ChapterInfo[];
-  deleteDownloadsSnackbar: UseBooleanReturnType;
+  hasDownloadedChapters: boolean;
+  deleteDownloadSnackbar?: UseBooleanReturnType;
   fetching: boolean;
   filter?: ChapterFilterKey[];
   firstUnreadChapter?: ChapterInfo;
   isLoading: boolean;
   lastRead?: ChapterInfo;
   navigateToChapter: (chapter: ChapterInfo) => void;
-  navigation: GlobalSearchScreenProps['navigation'];
   novel: NovelData | (Omit<NovelData, 'id'> & { id: 'NO_ID' });
   novelBottomSheetRef: React.RefObject<BottomSheetModalMethods | null>;
-  onRefreshPage: (page: string) => void;
-  page?: string;
-  pageIndex: number;
-  pages: string[];
-  pageNavigationSheetRef: React.RefObject<BottomSheetModalMethods | null>;
   setCustomNovelCover: () => Promise<void>;
   saveNovelCover: () => Promise<void>;
   theme: ThemeColors;
@@ -85,159 +74,19 @@ const getStatusIcon = (status?: string) => {
   return 'help';
 };
 
-const ChapterCountSkeleton = ({ theme }: { theme: ThemeColors }) => {
-  const sv = useSharedValue(0);
-  const { disableLoadingAnimations } = useAppSettings();
-  const [highlightColor, backgroundColor] = useLoadingColors(theme);
-
-  const animatedProps = useAnimatedProps(() => {
-    return {
-      left: (sv.value + '%') as `${number}%`,
-    };
-  });
-
-  React.useEffect(() => {
-    if (disableLoadingAnimations) return;
-    sv.value = withRepeat(
-      withSequence(0, withTiming(160, { duration: 1000 })),
-      -1,
-    );
-  }, [disableLoadingAnimations, sv]);
-
-  if (disableLoadingAnimations) {
-    return (
-      <View
-        style={[
-          styles.chapterCountSkeleton,
-          { backgroundColor: backgroundColor },
-        ]}
-      />
-    );
-  }
-
-  const LG = Animated.createAnimatedComponent(LinearGradient);
-
-  return (
-    <View
-      style={[
-        styles.chapterCountSkeleton,
-        { backgroundColor: backgroundColor },
-      ]}
-    >
-      <LG
-        start={[0, 0]}
-        end={[1, 0]}
-        locations={[0, 0.3, 0.7, 1]}
-        style={[animatedProps, styles.chapterCountGradient]}
-        colors={['transparent', highlightColor, highlightColor, 'transparent']}
-      />
-    </View>
-  );
-};
-
-const useShimmer = (theme: ThemeColors) => {
-  const sv = useSharedValue(0);
-  const { disableLoadingAnimations } = useAppSettings();
-  const [highlightColor, backgroundColor] = useLoadingColors(theme);
-
-  const animatedStyle = useAnimatedProps(() => ({
-    left: (sv.value + '%') as `${number}%`,
-  }));
-
-  React.useEffect(() => {
-    if (disableLoadingAnimations) return;
-    sv.value = withRepeat(
-      withSequence(0, withTiming(160, { duration: 1000 })),
-      -1,
-    );
-  }, [disableLoadingAnimations, sv]);
-
-  return {
-    animatedStyle,
-    highlightColor,
-    backgroundColor,
-    disableLoadingAnimations,
-  };
-};
-
-const NovelDetailsSkeleton = ({ theme }: { theme: ThemeColors }) => {
-  const {
-    animatedStyle,
-    highlightColor,
-    backgroundColor,
-    disableLoadingAnimations,
-  } = useShimmer(theme);
-
-  const shimmer = !disableLoadingAnimations ? (
-    <AnimatedLinearGradient
-      start={[0, 0]}
-      end={[1, 0]}
-      locations={[0, 0.3, 0.7, 1]}
-      style={[animatedStyle, styles.infoSkeletonGradient]}
-      colors={['transparent', highlightColor, highlightColor, 'transparent']}
-    />
-  ) : null;
-
-  return (
-    <>
-      <Row style={styles.infoRow}>
-        <View style={[styles.infoSkeletonBar, { backgroundColor, width: 130 }]}>
-          {shimmer}
-        </View>
-      </Row>
-      <Row style={styles.infoRow}>
-        <View style={[styles.infoSkeletonBar, { backgroundColor, width: 180 }]}>
-          {shimmer}
-        </View>
-      </Row>
-    </>
-  );
-};
-
-const ButtonGroupSkeleton = ({ theme }: { theme: ThemeColors }) => {
-  const {
-    animatedStyle,
-    highlightColor,
-    backgroundColor,
-    disableLoadingAnimations,
-  } = useShimmer(theme);
-
-  const shimmer = !disableLoadingAnimations ? (
-    <AnimatedLinearGradient
-      start={[0, 0]}
-      end={[1, 0]}
-      locations={[0, 0.3, 0.7, 1]}
-      style={[animatedStyle, styles.buttonSkeletonGradient]}
-      colors={['transparent', highlightColor, highlightColor, 'transparent']}
-    />
-  ) : null;
-
-  return (
-    <View style={styles.buttonGroupSkeletonContainer}>
-      <View style={[styles.buttonSkeleton, { backgroundColor }]}>
-        {shimmer}
-      </View>
-      <View style={[styles.buttonSkeleton, { backgroundColor }]}>
-        {shimmer}
-      </View>
-    </View>
-  );
-};
-
-const showNotAvailable = async () => {
+const showNotAvailable = () => {
   showToast('Not available while loading');
 };
 
 const NovelInfoHeader = ({
-  chapters,
-  deleteDownloadsSnackbar,
+  hasDownloadedChapters,
+  deleteDownloadSnackbar,
   fetching,
-  filter,
+  filter = [],
   firstUnreadChapter,
   isLoading = false,
   lastRead,
   navigateToChapter,
-  navigation,
   novel,
   novelBottomSheetRef,
   setCustomNovelCover,
@@ -247,7 +96,8 @@ const NovelInfoHeader = ({
   trackerSheetRef,
 }: NovelInfoHeaderProps) => {
   const { hideBackdrop = false } = useAppSettings();
-  const { followNovel } = useNovelContext();
+  const navigation = useNavigation<NovelScreenProps['navigation']>();
+  const followNovel = useNovelAction('followNovel');
 
   const pluginName = useMemo(
     () =>
@@ -257,7 +107,15 @@ const NovelInfoHeader = ({
     [novel.pluginId],
   );
 
-  const coverSource = useMemo(() => ({ uri: novel.cover }), [novel.cover]);
+  const coverSource = useMemo(
+    () => ({ uri: novel.cover ?? undefined }),
+    [novel.cover],
+  );
+
+  const novelStatus = useMemo(
+    () => (novel.id !== 'NO_ID' ? novel.status ?? undefined : undefined),
+    [novel.id, novel.status],
+  );
 
   const handleTitlePress = useCallback(
     () =>
@@ -273,21 +131,30 @@ const NovelInfoHeader = ({
     );
   }, [novel.name]);
 
-  const handleFollowNovel = useCallback(() => {
+  const handleFollowNovel = useCallback(async () => {
     if (isLoading) {
       showNotAvailable();
       return;
     }
-    followNovel();
-    if (novel.inLibrary && chapters.some(chapter => chapter.isDownloaded)) {
-      deleteDownloadsSnackbar.setTrue();
+    try {
+      await followNovel();
+      if (novel.inLibrary && hasDownloadedChapters) {
+        deleteDownloadSnackbar?.setTrue();
+      } else {
+        deleteDownloadSnackbar?.setFalse();
+      }
+    } catch (error) {
+      showToast(
+        'Failed updating: ' +
+          (error instanceof Error ? error.message : String(error)),
+      );
     }
   }, [
     isLoading,
     followNovel,
     novel.inLibrary,
-    chapters,
-    deleteDownloadsSnackbar,
+    hasDownloadedChapters,
+    deleteDownloadSnackbar,
   ]);
 
   const handleTrackerSheet = useCallback(
@@ -359,16 +226,14 @@ const NovelInfoHeader = ({
                 ) : null}
                 <Row style={styles.infoRow}>
                   <MaterialCommunityIcons
-                    name={getStatusIcon(
-                      novel.id !== 'NO_ID' ? novel.status : undefined,
-                    )}
+                    name={getStatusIcon(novelStatus)}
                     size={14}
                     color={theme.onSurfaceVariant}
                     style={styles.marginRight}
                   />
                   <NovelInfo theme={theme}>
-                    {(novel.id !== 'NO_ID'
-                      ? translateNovelStatus(novel.status)
+                    {(novelStatus
+                      ? translateNovelStatus(novelStatus)
                       : getString('novelScreen.unknownStatus')) +
                       ' • ' +
                       pluginName}
@@ -423,13 +288,19 @@ const NovelInfoHeader = ({
                   <ChapterCountSkeleton theme={theme} />
                 ) : (
                   <Text style={[{ color: theme.onSurface }, styles.chapters]}>
-                    {`${totalChapters} ${getString('novelScreen.chapters')}`}
+                    {`${totalChapters ?? 0} ${getString(
+                      'novelScreen.chapters',
+                    )}`}
                   </Text>
                 )}
               </View>
               <IconButton
                 icon="filter-variant"
-                iconColor={filter ? filterColor(theme.isDark) : theme.onSurface}
+                iconColor={
+                  filter.length > 0
+                    ? filterColor(theme.isDark)
+                    : theme.onSurface
+                }
                 size={24}
                 onPress={handleOpenBottomSheet}
               />
@@ -454,19 +325,6 @@ const styles = StyleSheet.create({
   bottomsheetContainer: {
     gap: 12,
   },
-  chapterCountGradient: {
-    height: 20,
-    position: 'absolute',
-    transform: [{ translateX: '-100%' }],
-    width: '60%',
-  },
-  chapterCountSkeleton: {
-    borderRadius: 4,
-    height: 14,
-    marginHorizontal: 16,
-    overflow: 'hidden',
-    width: 120,
-  },
   chapters: {
     fontSize: 14,
     paddingHorizontal: 16,
@@ -482,34 +340,5 @@ const styles = StyleSheet.create({
   },
   infoRow: {
     marginBottom: 8,
-  },
-  infoSkeletonBar: {
-    borderRadius: 4,
-    height: 14,
-    overflow: 'hidden',
-  },
-  infoSkeletonGradient: {
-    height: 20,
-    position: 'absolute',
-    transform: [{ translateX: '-100%' }],
-    width: '60%',
-  },
-  buttonGroupSkeletonContainer: {
-    flexDirection: 'row',
-    marginHorizontal: 16,
-    paddingTop: 8,
-    gap: 8,
-  },
-  buttonSkeleton: {
-    borderRadius: 8,
-    flex: 1,
-    height: 52,
-    overflow: 'hidden',
-  },
-  buttonSkeletonGradient: {
-    height: 60,
-    position: 'absolute',
-    transform: [{ translateX: '-100%' }],
-    width: '60%',
   },
 });

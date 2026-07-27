@@ -6,9 +6,9 @@ import { History } from '@database/types';
 import {
   deleteAllHistory,
   deleteChapterHistory,
+  deleteNovelHistory,
   getHistoryFromDb,
 } from '@database/queries/HistoryQueries';
-import dayjs from 'dayjs';
 import { parseChapterNumber } from '@utils/parseChapterNumber';
 
 const useHistory = () => {
@@ -16,41 +16,48 @@ const useHistory = () => {
   const [history, setHistory] = useState<History[]>([]);
   const [error, setError] = useState<string>();
 
-  const getHistory = () =>
-    getHistoryFromDb()
-      .then(res =>
-        setHistory(
-          res.map(localHistory => {
-            const parsedTime = dayjs(localHistory.releaseTime);
-            return {
-              ...localHistory,
-              releaseTime: parsedTime.isValid()
-                ? parsedTime.format('LL')
-                : localHistory.releaseTime,
-              chapterNumber: localHistory.chapterNumber
-                ? localHistory.chapterNumber
-                : parseChapterNumber(localHistory.novelName, localHistory.name),
-            };
-          }),
-        ),
-      )
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setIsLoading(false));
+  const getHistory = useCallback(
+    () =>
+      getHistoryFromDb()
+        .then(res =>
+          setHistory(
+            res.map(localHistory => {
+              return {
+                ...localHistory,
+                chapterNumber: localHistory.chapterNumber
+                  ? localHistory.chapterNumber
+                  : parseChapterNumber(
+                      localHistory.novelName,
+                      localHistory.name,
+                    ),
+              };
+            }),
+          ),
+        )
+        .catch((err: Error) => setError(err.message))
+        .finally(() => setIsLoading(false)),
+    [],
+  );
 
-  const clearAllHistory = () => {
-    deleteAllHistory();
-    getHistory();
+  const clearAllHistory = async () => {
+    await deleteAllHistory();
+    await getHistory();
   };
 
   const removeChapterFromHistory = async (chapterId: number) => {
-    deleteChapterHistory(chapterId);
-    getHistory();
+    await deleteChapterHistory(chapterId);
+    await getHistory();
+  };
+
+  const removeNovelFromHistory = async (novelId: number) => {
+    await deleteNovelHistory(novelId);
+    await getHistory();
   };
 
   useFocusEffect(
     useCallback(() => {
-      getHistory();
-    }, []),
+      void getHistory();
+    }, [getHistory]),
   );
 
   return {
@@ -58,6 +65,7 @@ const useHistory = () => {
     history,
     error,
     removeChapterFromHistory,
+    removeNovelFromHistory,
     clearAllHistory,
   };
 };

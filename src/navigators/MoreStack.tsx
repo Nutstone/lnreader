@@ -1,5 +1,3 @@
-import React from 'react';
-
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 // Screens
@@ -16,40 +14,62 @@ import AppearanceSettings from '../screens/settings/SettingsAppearanceScreen/Set
 import CategoriesScreen from '@screens/Categories/CategoriesScreen';
 import RespositorySettings from '@screens/settings/SettingsRepositoryScreen/SettingsRepositoryScreen';
 import AudiobookSettings from '@screens/settings/SettingsAudiobookScreen';
-// import LibrarySettings from '@screens/settings/SettingsLibraryScreen/SettingsLibraryScreen';
+import LibrarySettings from '@screens/settings/SettingsLibraryScreen/SettingsLibraryScreen';
 import StatsScreen from '@screens/StatsScreen/StatsScreen';
 import { MoreStackParamList, SettingsStackParamList } from './types';
+import { useTheme } from '@hooks/persisted';
 
 const Stack = createNativeStackNavigator<
   MoreStackParamList & SettingsStackParamList
 >();
 
-const stackNavigatorConfig = { headerShown: false };
+const SettingsStack = () => {
+  const theme = useTheme();
 
-const SettingsStack = () => (
-  <Stack.Navigator screenOptions={stackNavigatorConfig}>
-    <Stack.Screen name="Settings" component={Settings} />
-    <Stack.Screen name="GeneralSettings" component={GeneralSettings} />
-    <Stack.Screen name="ReaderSettings" component={ReaderSettings} />
-    <Stack.Screen name="TrackerSettings" component={TrackerSettings} />
-    <Stack.Screen name="BackupSettings" component={BackupSettings} />
-    <Stack.Screen name="AppearanceSettings" component={AppearanceSettings} />
-    <Stack.Screen name="AdvancedSettings" component={AdvancedSettings} />
-    <Stack.Screen name="RespositorySettings" component={RespositorySettings} />
-    <Stack.Screen name="AudiobookSettings" component={AudiobookSettings} />
-    {/* <Stack.Screen name="LibrarySettings" component={LibrarySettings} /> */}
-  </Stack.Navigator>
-);
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        animation: 'none',
+        contentStyle: { backgroundColor: theme.background },
+        headerShown: false,
+      }}
+    >
+      <Stack.Screen name="Settings" component={Settings} />
+      <Stack.Screen name="GeneralSettings" component={GeneralSettings} />
+      <Stack.Screen name="ReaderSettings" component={ReaderSettings} />
+      <Stack.Screen name="TrackerSettings" component={TrackerSettings} />
+      <Stack.Screen name="BackupSettings" component={BackupSettings} />
+      <Stack.Screen name="AppearanceSettings" component={AppearanceSettings} />
+      <Stack.Screen name="AdvancedSettings" component={AdvancedSettings} />
+      <Stack.Screen
+        name="RespositorySettings"
+        component={RespositorySettings}
+      />
+      <Stack.Screen name="AudiobookSettings" component={AudiobookSettings} />
+      <Stack.Screen name="LibrarySettings" component={LibrarySettings} />
+    </Stack.Navigator>
+  );
+};
 
-const MoreStack = () => (
-  <Stack.Navigator screenOptions={stackNavigatorConfig}>
-    <Stack.Screen name="SettingsStack" component={SettingsStack} />
-    <Stack.Screen name="About" component={About} />
-    <Stack.Screen name="TaskQueue" component={TaskQueue} />
-    <Stack.Screen name="Downloads" component={Downloads} />
-    <Stack.Screen name="Categories" component={CategoriesScreen} />
-    <Stack.Screen name="Statistics" component={StatsScreen} />
-  </Stack.Navigator>
-);
+const MoreStack = () => {
+  const theme = useTheme();
+
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        animation: 'none',
+        contentStyle: { backgroundColor: theme.background },
+        headerShown: false,
+      }}
+    >
+      <Stack.Screen name="SettingsStack" component={SettingsStack} />
+      <Stack.Screen name="About" component={About} />
+      <Stack.Screen name="TaskQueue" component={TaskQueue} />
+      <Stack.Screen name="Downloads" component={Downloads} />
+      <Stack.Screen name="Categories" component={CategoriesScreen} />
+      <Stack.Screen name="Statistics" component={StatsScreen} />
+    </Stack.Navigator>
+  );
+};
 
 export default MoreStack;

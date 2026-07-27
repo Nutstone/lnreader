@@ -9,10 +9,11 @@ import { Category, NovelInfo } from '@database/types';
 import { useLibrarySettings } from '@hooks/persisted';
 import { LibrarySortOrder } from '../constants/constants';
 import { switchNovelToLibraryQuery } from '@database/queries/NovelQueries';
-import ServiceManager, {
+import {
+  BACKGROUND_TASKS_STORE_KEY,
   BackgroundTask,
   QueuedBackgroundTask,
-} from '@services/ServiceManager';
+} from '@services/backgroundTasks';
 import { useMMKVObject } from 'react-native-mmkv';
 
 // type Library = Category & { novels: LibraryNovelInfo[] };
@@ -70,7 +71,7 @@ export const useLibrary = (): UseLibraryReturnType => {
       setIsLoading(true);
     }
 
-    const [_, novels] = await Promise.all([
+    const [, novels] = await Promise.all([
       refreshCategories(),
       getLibraryNovelsFromDb(sortOrder, filter, searchText, downloadedOnlyMode),
     ]);
@@ -116,9 +117,9 @@ export const useLibrary = (): UseLibraryReturnType => {
     getLibrary();
   });
 
-  const [taskQueue] = useMMKVObject<
-    Array<BackgroundTask | QueuedBackgroundTask>
-  >(ServiceManager.manager.STORE_KEY);
+  const [taskQueue] = useMMKVObject<(BackgroundTask | QueuedBackgroundTask)[]>(
+    BACKGROUND_TASKS_STORE_KEY,
+  );
   const restoreTasksCount = useMemo(
     () =>
       taskQueue?.filter(t => {

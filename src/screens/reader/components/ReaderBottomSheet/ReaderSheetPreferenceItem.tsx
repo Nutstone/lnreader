@@ -4,6 +4,7 @@ import { ThemeColors } from '../../../../theme/types';
 import Switch from '@components/Switch/Switch';
 
 interface ReaderSheetPreferenceItemProps {
+  description?: string;
   label: string;
   value: boolean;
   onPress: () => void;
@@ -11,6 +12,7 @@ interface ReaderSheetPreferenceItemProps {
 }
 
 const ReaderSheetPreferenceItem: React.FC<ReaderSheetPreferenceItemProps> = ({
+  description,
   label,
   value,
   onPress,
@@ -22,20 +24,15 @@ const ReaderSheetPreferenceItem: React.FC<ReaderSheetPreferenceItemProps> = ({
       android_ripple={{ color: theme.rippleColor }}
       onPress={onPress}
     >
-      <Text style={[styles.label, { color: theme.onSurfaceVariant }]}>
-        {label}
-      </Text>
-      <Suspense
-        fallback={
-          <View
-            style={{
-              width: 52,
-              height: 32,
-              borderRadius: 16,
-            }}
-          />
-        }
-      >
+      <View style={styles.textContainer}>
+        <Text style={[styles.label, { color: theme.onSurface }]}>{label}</Text>
+        {description ? (
+          <Text style={[styles.description, { color: theme.onSurfaceVariant }]}>
+            {description}
+          </Text>
+        ) : null}
+      </View>
+      <Suspense fallback={<View style={styles.fallback} />}>
         <Switch value={value} onValueChange={onPress} />
       </Suspense>
     </Pressable>
@@ -53,7 +50,20 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   label: {
+    fontSize: 16,
+  },
+  description: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  textContainer: {
     flex: 1,
     paddingRight: 16,
+  },
+  fallback: {
+    width: 52,
+    height: 32,
+    borderRadius: 16,
   },
 });

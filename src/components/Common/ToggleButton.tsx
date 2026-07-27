@@ -16,10 +16,6 @@ const getToggleButtonPressableStyle = (
     : 'transparent',
 });
 
-const getToggleColorButtonPressableStyle = (backgroundColor: string) => ({
-  backgroundColor,
-});
-
 // --- Components ---
 
 interface ToggleButtonProps {
@@ -59,6 +55,7 @@ interface ToggleColorButtonProps {
   selected: boolean;
   backgroundColor: string;
   textColor: string;
+  theme: ThemeColors;
   onPress: () => void;
 }
 
@@ -66,24 +63,36 @@ export const ToggleColorButton: React.FC<ToggleColorButtonProps> = ({
   selected,
   backgroundColor,
   textColor,
+  theme,
   onPress,
 }) => (
-  <View style={styles.toggleColorButtonContainer}>
-    <Pressable
-      android_ripple={{ color: textColor }}
+  <Pressable
+    accessibilityRole="radio"
+    accessibilityState={{ checked: selected }}
+    android_ripple={{ color: theme.rippleColor, foreground: true }}
+    style={[
+      styles.toggleColorButtonContainer,
+      {
+        borderColor: selected ? theme.primary : 'transparent',
+      },
+    ]}
+    onPress={onPress}
+  >
+    <View
       style={[
-        styles.toggleColorButtonPressable,
-        getToggleColorButtonPressableStyle(backgroundColor),
+        styles.toggleColorButtonSwatch,
+        {
+          backgroundColor,
+        },
       ]}
-      onPress={onPress}
     >
       <MaterialCommunityIcons
         name={selected ? 'check' : 'format-color-text'}
         color={textColor}
         size={24}
       />
-    </Pressable>
-  </View>
+    </View>
+  </Pressable>
 );
 
 const styles = StyleSheet.create({
@@ -98,16 +107,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   toggleColorButtonContainer: {
-    borderRadius: 50,
-    overflow: 'hidden',
-    marginHorizontal: 6,
-    height: 44,
-    width: 44,
-  },
-  toggleColorButtonPressable: {
-    flex: 1,
-    padding: 10,
     alignItems: 'center',
+    borderRadius: 24,
+    borderWidth: 2,
+    height: 48,
     justifyContent: 'center',
+    marginHorizontal: 4,
+    overflow: 'hidden',
+    width: 48,
+  },
+  toggleColorButtonSwatch: {
+    alignItems: 'center',
+    borderRadius: 50,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
   },
 });
