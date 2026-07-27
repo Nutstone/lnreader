@@ -2,7 +2,11 @@
  * Audiobook Engine Types
  *
  * Multi-voice audiobook engine for light novels using cloud LLM
- * for text analysis and on-device Kokoro TTS with voice blending.
+ * for text analysis and on-device Pocket TTS (Kyutai) with a curated
+ * voice bank. Main characters + narrator are locked to *emotional*
+ * speakers (Expresso + voice-zero), which provide emotional variants
+ * (neutral/happy/sad/whisper/...) for the same speaker identity.
+ * Side characters draw from a CC0 voice-donation bank (single-emotion).
  */
 
 // ── LLM Provider Configuration ──────────────────────────────────
@@ -16,10 +20,24 @@ export interface LLMConfig {
 
 // ── TTS Configuration ───────────────────────────────────────────
 
+/**
+ * Model precision for the Pocket TTS ONNX export.
+ * - q8: int8 quantized (smallest, fastest, lowest quality)
+ * - fp16: half-precision (balanced)
+ * - fp32: full precision (largest, highest quality)
+ */
+export type TTSPrecision = 'int8' | 'fp32';
+
 export interface TTSConfig {
-  dtype: 'q4' | 'q8' | 'fp16';
+  precision: TTSPrecision;
   lookaheadSegments: number;
-  sampleRate: number;
+  /**
+   * How many of the top characters get locked to *emotional* speakers
+   * (Expresso + voice-zero), which can express emotion across the
+   * book. Beyond this count, characters fall back to single-emotion
+   * donation voices.
+   */
+  mainCharacterEmotionalSlots: number;
 }
 
 // ── Pipeline Configuration ──────────────────────────────────────
@@ -27,8 +45,16 @@ export interface TTSConfig {
 export interface AudiobookConfig {
   llm: LLMConfig;
   tts: TTSConfig;
-  cacheDir: string;
   novelId: string;
+}
+
+// ── Chapter Input ───────────────────────────────────────────────
+
+export interface ChapterInput {
+  /** Database chapter id — annotation cache files are keyed by this. */
+  id: number;
+  /** Plain chapter text (HTML already stripped). */
+  text: string;
 }
 
 // ── Character Glossary ──────────────────────────────────────────
@@ -39,6 +65,13 @@ export interface Character {
   gender: 'male' | 'female' | 'neutral';
   personality: string[];
   description: string;
+  /**
+   * Importance hint from the LLM. Higher = more central to the
+   * story. Used to pick which characters get locked to emotional
+   * speakers (full emotional range) vs. drawing from the
+   * single-emotion donation bank.
+   */
+  importance?: number;
 }
 
 export interface CharacterGlossary {
@@ -73,33 +106,113 @@ export interface ChapterAnnotation {
   createdAt: string;
 }
 
-// ── Voice Blending ──────────────────────────────────────────────
+// ── Voice Bank ──────────────────────────────────────────────────
 
-export interface VoiceComponent {
-  voiceId: string;
-  weight: number;
+/**
+ * One physical voice clip in a remote voice repository. The default
+ * base URL is the kyutai/tts-voices Hugging Face repo; clips from
+ * other sources (e.g. voice-zero on GitHub) override `baseUrl`.
+ */
+export interface VoiceClip {
+  /** Path under the base URL (without leading slash). */
+  path: string;
+  /** Optional override for the repository base URL. */
+  baseUrl?: string;
 }
 
-export interface BlendedVoice {
+/**
+ * Where the speaker's clips come from. Used for telemetry and
+ * licensing display only — the runtime treats sources identically.
+ */
+export type EmotionalSpeakerSource = 'expresso';
+
+/**
+ * A speaker that exposes multiple emotional variants for the same
+ * voice identity, realized as reference audio clips the on-device
+ * mimi encoder turns into voice-conditioning states. Expresso
+ * (4 speakers, CC-BY-NC, real human emotional speech) populates
+ * this pool with verified file paths in kyutai/tts-voices.
+ */
+export interface EmotionalSpeaker {
+  /** Stable speaker ID, e.g. "ex01". */
+  id: string;
   label: string;
-  components: VoiceComponent[];
-  speed: number;
+  gender: 'male' | 'female';
+  source: EmotionalSpeakerSource;
+  /**
+   * Map from our Emotion enum to the speaker's clip for that
+   * emotion. `neutral` MUST be present; others fall back to it.
+   */
+  variants: Partial<Record<Emotion, VoiceClip>> & { neutral: VoiceClip };
 }
 
-export type VoiceArchetype =
-  | 'warrior'
-  | 'mentor'
-  | 'villain'
-  | 'gentle'
-  | 'trickster'
-  | 'noble'
-  | 'child'
-  | 'elder'
-  | 'narrator';
+/**
+ * A single-emotion voice backed by a precomputed prompt state in the
+ * ungated kyutai/pocket-tts-without-voice-cloning repo
+ * (languages/<lang>/embeddings/<name>.safetensors). Small download,
+ * no on-device encoding needed.
+ */
+export interface DonationVoice {
+  id: string;
+  label: string;
+  gender: 'male' | 'female' | 'neutral';
+  /** Embedding file name in the model repo, e.g. "alba". */
+  embeddingName: string;
+}
+
+/**
+ * What the TTS adapter needs to prepare a voice-conditioning state:
+ * either a named precomputed embedding, or a reference audio clip
+ * to be encoded on device.
+ */
+export type VoiceSpec =
+  | { kind: 'embedding'; name: string }
+  | { kind: 'clip'; clip: VoiceClip };
+
+// ── Voice Assignment ────────────────────────────────────────────
+
+/**
+ * The runtime voice for a character. Either a lock to an emotional
+ * speaker (full emotional range) or a fixed donation voice
+ * (single emotion).
+ */
+/** Per-voice tuning set in the cast editor. */
+export interface VoiceTuning {
+  /** Playback rate multiplier (pitch-corrected), default 1. */
+  speed?: number;
+  /**
+   * Pitch factor, default 1 (0.85–1.20 ≈ ∓3 semitones). Baked into
+   * the rendered audio (resample) and compensated at playback so the
+   * duration stays natural — effectively creates new voice variants.
+   */
+  pitch?: number;
+  /** Volume 0–1 (attenuation only — 1 is already full scale). */
+  volume?: number;
+}
+
+export type VoiceAssignment = VoiceTuning &
+  (
+    | {
+        kind: 'emotional';
+        speakerId: string;
+        label: string;
+        /** Set by a manual pick in the cast editor; survives auto
+         * reassignment ("reset to auto" clears it). */
+        pinned?: boolean;
+      }
+    | {
+        kind: 'donation';
+        voiceId: string;
+        label: string;
+        pinned?: boolean;
+      }
+  );
 
 export interface VoiceMap {
   novelId: string;
-  mappings: Record<string, BlendedVoice>;
+  /** Bumped when assignment schema changes; older caches get rebuilt. */
+  schemaVersion: number;
+  mappings: Record<string, VoiceAssignment>;
   updatedAt: string;
 }
 
@@ -107,10 +220,20 @@ export interface VoiceMap {
 
 export interface AudioSegment {
   pauseBeforeMs: number;
-  audioData: string;
+  /**
+   * Absolute path to a WAV file on disk. Lives under the renderer's
+   * audio cache; `expo-av` plays it directly via `file://` URI.
+   */
+  audioPath: string;
   durationMs: number;
   speaker: string;
   text: string;
+  /** Playback rate from the speaker's voice tuning (speed and pitch
+   * compensation combined), default 1. Applied at playback with
+   * pitch correction. */
+  speed?: number;
+  /** Playback volume from the voice tuning, default 1. */
+  volume?: number;
 }
 
 // ── Progress Callback ───────────────────────────────────────────
@@ -120,6 +243,24 @@ export interface PipelineProgress {
   message: string;
   progress: number;
 }
+
+/**
+ * Progress of the one-time TTS setup that runs before a chapter can
+ * start playing: downloading the model bundle (the dominant cost on
+ * first run — up to hundreds of MB), creating the ONNX sessions, and
+ * preparing the voices used by the chapter.
+ */
+export type TTSSetupProgress =
+  | {
+      stage: 'bundle';
+      file: string;
+      fraction: number;
+      doneBytes: number;
+      totalBytes: number;
+    }
+  | { stage: 'model-load' }
+  | { stage: 'voices'; done: number; total: number }
+  | { stage: 'synthesis' };
 
 // ── LLM Message Format ──────────────────────────────────────────
 

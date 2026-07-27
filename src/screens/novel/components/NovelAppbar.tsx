@@ -97,6 +97,8 @@ const NovelAppbar = ({
   theme,
   isLocal,
   downloadChapters,
+  prepareAudiobook,
+  openVoiceCast,
   deleteChapters,
   showEditInfoModal,
   downloadCustomChapterModal,
@@ -112,6 +114,8 @@ const NovelAppbar = ({
   theme: ThemeColors;
   isLocal: boolean | undefined;
   downloadChapters: (amount: number | 'all' | 'unread') => void;
+  prepareAudiobook: (amount: number) => void;
+  openVoiceCast: () => void;
   deleteChapters: () => void;
   showEditInfoModal: React.Dispatch<React.SetStateAction<boolean>>;
   downloadCustomChapterModal: () => void;
@@ -180,8 +184,21 @@ const NovelAppbar = ({
         label: getString('novelScreen.download.delete'),
         onPress: () => deleteChapters(),
       },
+      {
+        label: 'Audiobook: prepare next 5',
+        onPress: () => prepareAudiobook(5),
+      },
+      {
+        label: 'Audiobook: prepare next 10',
+        onPress: () => prepareAudiobook(10),
+      },
     ];
-  }, [deleteChapters, downloadChapters, downloadCustomChapterModal]);
+  }, [
+    deleteChapters,
+    downloadChapters,
+    downloadCustomChapterModal,
+    prepareAudiobook,
+  ]);
 
   const extraMenuItems = useMemo(() => {
     const items = [];
@@ -213,6 +230,10 @@ const NovelAppbar = ({
         label: getString('novelScreen.edit.cover'),
         onPress: () => setCustomNovelCover(),
       },
+      {
+        label: 'Audiobook voice cast',
+        onPress: () => openVoiceCast(),
+      },
     );
 
     return items;
@@ -224,6 +245,7 @@ const NovelAppbar = ({
     setCustomNovelCover,
     shareNovel,
     showEditInfoModal,
+    openVoiceCast,
   ]);
 
   const openDlMenu = useCallback(() => showDownloadMenu(true), []);

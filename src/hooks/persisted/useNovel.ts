@@ -1,5 +1,5 @@
 import NativeFile from '@modules/native-file'
-import { NOVEL_STORAGE } from '@utils/Storages';
+import { AUDIOBOOK_STORAGE, NOVEL_STORAGE } from '@utils/Storages';
 import { MMKVStorage } from '@utils/mmkv/mmkv';
 import {
   deleteCachedNovels as deleteCachedNovelsFromDb,
@@ -54,6 +54,10 @@ export const deleteCachedNovels = async () => {
     const novelDir = `${NOVEL_STORAGE}/${novel.pluginId}/${novel.id}`;
     if (await NativeFile.exists(novelDir)) {
       await NativeFile.unlink(novelDir);
+    }
+    const audiobookDir = `${AUDIOBOOK_STORAGE}/${novel.id}`;
+    if (await NativeFile.exists(audiobookDir)) {
+      await NativeFile.unlink(audiobookDir);
     }
   }
 

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: Android renders alpha only, so pure white. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11.4,7.5 C9,5.3 5.6,4.7 3.2,4.7 L3.2,19.5 C5.6,19.5 9,20.1 11.4,22.1 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12.6,7.5 C15,5.3 18.4,4.7 20.8,4.7 L20.8,19.5 C18.4,19.5 15,20.1 12.6,22.1 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.8,1 L13.2,1 L13.2,5 L10.8,5 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6.5,2 L8.9,2 L8.9,5 L6.5,5 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M15.1,2 L17.5,2 L17.5,5 L15.1,5 Z" />
+</vector>

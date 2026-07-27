@@ -17,6 +17,7 @@ const MULTIPLICABLE_TASKS: BackgroundTask['name'][] = [
   'IMPORT_EPUB',
   'EXPORT_EPUB',
   'MIGRATE_NOVEL',
+  'AUDIOBOOK_PIPELINE',
 ];
 
 export const allowsDuplicateTask = (task: BackgroundTask) =>

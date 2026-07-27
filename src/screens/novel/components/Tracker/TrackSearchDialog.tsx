@@ -202,7 +202,13 @@ const TrackSearchDialog: React.FC<TrackSearchDialogProps> = ({
         </TouchableRipple>
       );
     },
-    [selectedNovel, handleSelectNovel, theme],
+    [
+      selectedNovel,
+      handleSelectNovel,
+      theme.rippleColor,
+      theme.primary,
+      theme.onSurface,
+    ],
   );
 
   return (

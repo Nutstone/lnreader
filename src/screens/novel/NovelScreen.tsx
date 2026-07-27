@@ -28,6 +28,17 @@ import { useNovelScreenActions } from './hooks/useNovelScreenActions';
 import { useNovelRefresh } from './hooks/useNovelRefresh';
 import SetCategoryModal from './components/SetCategoriesModal';
 import { backgroundTasks } from '@services/backgroundTasks';
+import { ChapterInfo } from '@database/types';
+import { AUDIOBOOK_STORAGE } from '@utils/Storages';
+import NativeFile from '@modules/native-file';
+import { showToast } from '@utils/showToast';
+import { getMMKVObject } from '@utils/mmkv/mmkv';
+import {
+  AudiobookSettings,
+  AUDIOBOOK_SETTINGS,
+  isLLMConfigured,
+  resolveLLMConfig,
+} from '@hooks/persisted/useAudiobookSettings';
 
 const Novel = ({ route, navigation }: NovelScreenProps) => {
   const novel = useNovelValue('novel');
@@ -56,6 +67,76 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
   } = useBoolean();
 
   const headerOpacity = useSharedValue(0);
+
+  // Queue the next N unread chapters that aren't annotated yet for
+  // audiobook preparation (mirrors the download-next-N semantics).
+  const prepareAudiobook = useCallback(
+    async (amount: number) => {
+      if (!novel) {
+        return;
+      }
+      // Preparation is the LLM stage — it can't run keyless (playback
+      // can, via the narrator fallback). Fail here, not in a
+      // background notification minutes later.
+      if (
+        !isLLMConfigured(
+          resolveLLMConfig(
+            getMMKVObject<AudiobookSettings>(AUDIOBOOK_SETTINGS),
+          ),
+        )
+      ) {
+        showToast('Set an LLM API key in Audiobook Settings first.');
+        return;
+      }
+      const unread = chapters.filter(c => c.unread);
+      const pool = unread.length > 0 ? unread : chapters;
+      // Early-exit scan: novels can have thousands of loaded chapters
+      // and each probe is a native call.
+      const pending: ChapterInfo[] = [];
+      for (const c of pool) {
+        if (pending.length >= amount) {
+          break;
+        }
+        if (
+          !(await NativeFile.exists(
+            `${AUDIOBOOK_STORAGE}/${novel.id}/annotations/${c.id}.json`,
+          ))
+        ) {
+          pending.push(c);
+        }
+      }
+      if (pending.length === 0) {
+        showToast('Next chapters are already prepared');
+        return;
+      }
+      backgroundTasks.enqueue({
+        name: 'AUDIOBOOK_PIPELINE',
+        data: {
+          novelId: novel.id,
+          novelName: novel.name,
+          pluginId: novel.pluginId,
+          chapterIds: pending.map(c => c.id),
+          chapterPaths: pending.map(c => c.path),
+        },
+      });
+      showToast(
+        `Preparing ${pending.length} chapter${
+          pending.length === 1 ? '' : 's'
+        } for audiobook`,
+      );
+    },
+    [chapters, novel],
+  );
+
+  const openVoiceCast = useCallback(() => {
+    if (!novel) {
+      return;
+    }
+    navigation.navigate('VoiceCast', {
+      novelId: novel.id,
+      novelName: novel.name,
+    });
+  }, [navigation, novel]);
 
   const [jumpToChapterModal, showJumpToChapterModal] = useState(false);
   const {
@@ -125,6 +206,8 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
               novel={novel}
               deleteChapters={deleteDownloadedChapters}
               downloadChapters={downloadAvailableChapters}
+              prepareAudiobook={prepareAudiobook}
+              openVoiceCast={openVoiceCast}
               showEditInfoModal={showEditInfoModal}
               setCustomNovelCover={setCustomNovelCover}
               downloadCustomChapterModal={openDlChapterModal}

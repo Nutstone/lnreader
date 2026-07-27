@@ -113,7 +113,16 @@ export type ReaderStackParamList = {
     novel: NovelInfo;
     chapter: ChapterInfo;
   };
+  VoiceCast: {
+    novelId: number;
+    novelName: string;
+  };
 };
+
+export type VoiceCastScreenProps = StackScreenProps<
+  ReaderStackParamList,
+  'VoiceCast'
+>;
 
 export type AboutScreenProps = StackScreenProps<MoreStackParamList, 'About'>;
 export type DownloadsScreenProps = StackScreenProps<

@@ -2,20 +2,32 @@ export { AudiobookPipeline } from './pipeline';
 export { AudiobookPlayer } from './AudiobookPlayer';
 export type { AudiobookState } from './AudiobookPlayer';
 export { LLMAnnotator } from './llmAnnotator';
-export { VoiceBlender } from './voiceBlender';
+export { VoiceAssigner } from './voiceAssigner';
 export { TTSRenderer } from './ttsRenderer';
+export { htmlToText } from './htmlToText';
+export {
+  EMOTIONAL_SPEAKERS,
+  DONATION_VOICES,
+  DEFAULT_NARRATOR_SPEAKER_ID,
+  MAX_MAIN_CHARACTER_EMOTIONAL_SLOTS,
+  VOICE_BANK_SCHEMA_VERSION,
+} from './voiceBank';
 export type {
   AudiobookConfig,
+  ChapterInput,
   LLMConfig,
   TTSConfig,
+  TTSPrecision,
   Character,
   CharacterGlossary,
   Emotion,
   AnnotatedSegment,
   ChapterAnnotation,
-  VoiceComponent,
-  BlendedVoice,
-  VoiceArchetype,
+  VoiceClip,
+  EmotionalSpeaker,
+  EmotionalSpeakerSource,
+  DonationVoice,
+  VoiceAssignment,
   VoiceMap,
   AudioSegment,
   PipelineProgress,

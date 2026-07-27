@@ -19,7 +19,11 @@ import {
 } from '@hooks/persisted/useSettings';
 import { getBatteryLevel } from 'react-native-device-info';
 import { PLUGIN_STORAGE } from '@utils/Storages';
-import { AudiobookPlayer } from '@services/audiobook/AudiobookPlayer';
+import {
+  AudiobookPlayer,
+  getAudiobookPosition,
+} from '@services/audiobook/AudiobookPlayer';
+import { showToast } from '@utils/showToast';
 import { useChapterContext } from '../ChapterContext';
 import { ReaderSearchResult } from '../types';
 import { useTtsSession } from '../hooks/useTtsSession';
@@ -196,9 +200,15 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({
       }
     };
 
+    player.onFallback = message => {
+      showToast(message);
+    };
+
     player.onFinished = () => {
       isAudiobookActiveRef.current = false;
       isTTSReadingRef.current = false;
+      // Listening through a chapter counts as reading it.
+      saveProgress(100);
       const autoAdvance =
         readerSettingsRef.current.audiobook?.autoPageAdvance === true;
       if (autoAdvance && nextChapter) {
@@ -230,15 +240,42 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({
       }
     };
 
+    // Setup progress ("Downloading TTS model… 42%") — the first run
+    // downloads hundreds of MB, so it must not look like a hang. An
+    // empty message clears the banner once playback starts.
+    player.onStatus = message => {
+      const escaped = message
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n');
+      webViewRef.current?.injectJavaScript(
+        `if (window.audiobook && audiobook.setStatus) { audiobook.setStatus('${escaped}'); }`,
+      );
+    };
+
     return () => {
       player.stop();
       player.onSegmentChange = undefined;
       player.onFinished = undefined;
       player.onError = undefined;
       player.onStateChange = undefined;
+      player.onStatus = undefined;
+      player.onFallback = undefined;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapter.id, nextChapter]);
+
+  useEffect(() => {
+    const player = audiobookPlayerRef.current;
+    return () => {
+      // destroy() also releases the TTS model — ONNX sessions are
+      // native memory (hundreds of MB) and are never GC'd. It may
+      // finish long after unmount if a model download is in flight
+      // (dispose is serialized behind it); that's still the earliest
+      // safe release point.
+      player.destroy().catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     isTTSReadingRef.current = ttsState === 'playing';
@@ -655,10 +692,14 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({
           case 'audiobook-start':
             if (event.data && typeof event.data === 'string') {
               isAudiobookActiveRef.current = true;
+              // Resume mid-chapter when this is the chapter we last
+              // listened to (the player validates chapter, mode and
+              // segmentation before applying it).
               void audiobookPlayerRef.current.startChapter(
                 event.data,
                 chapter.id,
                 String(novel?.id || ''),
+                getAudiobookPosition(String(novel?.id || '')),
               );
             }
             break;

@@ -718,9 +718,8 @@
     "apiKey": "API Key",
     "baseUrl": "Base URL",
     "model": "Model",
-    "ttsQuality": "TTS Quality",
+    "ttsQuality": "TTS model precision",
     "lookaheadSegments": "Lookahead segments",
-    "sampleRate": "Sample rate",
     "providerAnthropic": "Anthropic",
     "providerGemini": "Gemini",
     "providerOllama": "Ollama"

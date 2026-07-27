@@ -615,7 +615,6 @@ export interface StringMap {
   'audiobookSettings.model': 'string';
   'audiobookSettings.ttsQuality': 'string';
   'audiobookSettings.lookaheadSegments': 'string';
-  'audiobookSettings.sampleRate': 'string';
   'audiobookSettings.providerAnthropic': 'string';
   'audiobookSettings.providerGemini': 'string';
   'audiobookSettings.providerOllama': 'string';

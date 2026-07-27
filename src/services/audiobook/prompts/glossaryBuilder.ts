@@ -1,4 +1,4 @@
-import { LLMMessage } from '../types';
+import { CharacterGlossary, LLMMessage } from '../types';
 
 const SYSTEM_PROMPT = `You are a literary analyst specializing in light novels and web novels. Your task is to extract a character glossary from the provided chapter text.
 
@@ -8,6 +8,7 @@ Analyze the text and identify all named characters. For each character, determin
 3. Their gender (male, female, or neutral if unclear)
 4. Personality keywords (2-5 words like: warrior, gentle, villainous, cheerful, stoic, wise, mischievous, noble, shy, aggressive, cold, warm, cunning, innocent, mature)
 5. A brief description (1 sentence)
+6. An importance score from 0 to 100 reflecting how central they are to the story
 
 Also determine the narrator's apparent gender based on writing style and perspective.
 
@@ -19,7 +20,8 @@ Respond with ONLY valid JSON matching this exact schema:
       "aliases": ["string"],
       "gender": "male" | "female" | "neutral",
       "personality": ["string"],
-      "description": "string"
+      "description": "string",
+      "importance": number
     }
   ],
   "narratorGender": "male" | "female"
@@ -30,12 +32,44 @@ Guidelines:
 - Use the most common name form (e.g., "Rimuru" not "Rimuru Tempest" unless the full name is used more often)
 - Personality keywords should reflect how they SOUND when speaking, not just their role
 - If gender is truly ambiguous, use "neutral"
-- Order characters by frequency of appearance (most frequent first)`;
+- Order characters by importance (most central first)
+- Importance scoring:
+  - 90-100: protagonist or co-protagonist, drives the story
+  - 70-89: major recurring character, frequent dialogue
+  - 40-69: supporting character, occasional dialogue
+  - 1-39: minor or one-off character
+  - The TTS engine reserves richer emotional voices for high-importance characters, so be discriminating.`;
 
-export function buildGlossaryPrompt(chapterTexts: string[]): LLMMessage {
+const MERGE_ADDENDUM = `
+
+You are UPDATING an existing glossary with newly read chapters:
+- Keep EVERY existing character, using the same primary name.
+- Enrich aliases, personality keywords, and descriptions when the new
+  chapters reveal more; adjust importance if their role has grown or
+  shrunk.
+- Append characters who are introduced in the new chapters.
+- Return the FULL merged glossary, not just the changes.`;
+
+export function buildGlossaryPrompt(
+  chapterTexts: string[],
+  existing?: CharacterGlossary,
+): LLMMessage {
   const combined = chapterTexts
     .map((text, i) => `--- Chapter ${i + 1} ---\n${text}`)
     .join('\n\n');
+
+  if (existing) {
+    return {
+      system: SYSTEM_PROMPT + MERGE_ADDENDUM,
+      user:
+        'Existing glossary:\n' +
+        JSON.stringify({
+          characters: existing.characters,
+          narratorGender: existing.narratorGender,
+        }) +
+        `\n\nUpdate it with these newly read chapter(s):\n\n${combined}`,
+    };
+  }
 
   return {
     system: SYSTEM_PROMPT,
