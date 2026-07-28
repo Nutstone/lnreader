@@ -16,7 +16,7 @@ import {
 } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { Divider, Modal, Portal, Text } from 'react-native-paper';
-import { Audio } from 'expo-av';
+import { AudioPlayer, createAudioPlayer } from 'expo-audio';
 
 import { Appbar, SafeAreaView } from '@components';
 import { useTheme } from '@hooks/persisted';
@@ -114,7 +114,7 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
   const [previewStatus, setPreviewStatus] = useState('');
 
   const rendererRef = useRef<TTSRenderer | null>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const soundRef = useRef<AudioPlayer | null>(null);
   const previewBusy = useRef(false);
 
   const assigner = useMemo(() => {
@@ -165,7 +165,11 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
   useEffect(() => {
     return () => {
       unmounted.current = true;
-      soundRef.current?.unloadAsync().catch(() => {});
+      try {
+        soundRef.current?.remove();
+      } catch {
+        // Already released.
+      }
       rendererRef.current?.dispose().catch(() => {});
     };
   }, []);
@@ -323,21 +327,24 @@ const VoiceCastScreen = ({ navigation, route }: VoiceCastScreenProps) => {
         // The user already left — don't play over the next screen.
         return;
       }
-      await soundRef.current?.unloadAsync().catch(() => {});
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: `file://${segment.audioPath}` },
-        {
-          shouldPlay: true,
-          rate: segment.speed ?? 1,
-          shouldCorrectPitch: true,
-          volume: segment.volume ?? 1,
-        },
-      );
+      try {
+        soundRef.current?.remove();
+      } catch {
+        // Already released.
+      }
+      soundRef.current = null;
+      const player = createAudioPlayer({
+        uri: `file://${segment.audioPath}`,
+      });
+      player.shouldCorrectPitch = true;
+      player.setPlaybackRate(segment.speed ?? 1, 'high');
+      player.volume = segment.volume ?? 1;
       if (unmounted.current) {
-        sound.unloadAsync().catch(() => {});
+        player.remove();
         return;
       }
-      soundRef.current = sound;
+      soundRef.current = player;
+      player.play();
     } catch (error) {
       setPreviewStatus('');
       if (!unmounted.current) {

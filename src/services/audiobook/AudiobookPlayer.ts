@@ -1,4 +1,8 @@
-import { Audio } from 'expo-av';
+import {
+  AudioPlayer,
+  createAudioPlayer,
+  setAudioModeAsync,
+} from 'expo-audio';
 import { getMMKVObject, setMMKVObject } from '@utils/mmkv/mmkv';
 import {
   AUDIOBOOK_SETTINGS,
@@ -46,11 +50,33 @@ export const getAudiobookPosition = (
  */
 const IDLE_UNLOAD_MS = 5 * 60 * 1000;
 
+/**
+ * Audiobook audio mode: keep playing with the screen off / app
+ * backgrounded, and in iOS silent mode. Set once, lazily, before the
+ * first playback.
+ */
+let audioModeConfigured = false;
+const ensureAudioMode = () => {
+  if (audioModeConfigured) {
+    return;
+  }
+  audioModeConfigured = true;
+  setAudioModeAsync({
+    playsInSilentMode: true,
+    shouldPlayInBackground: true,
+  }).catch(() => {
+    // Playback still works with the default mode; it just stops
+    // when the app is backgrounded.
+    audioModeConfigured = false;
+  });
+};
+
 export class AudiobookPlayer {
   private pipeline: AudiobookPipeline | null = null;
   private segments: AudioSegment[] = [];
   private currentIndex = 0;
-  private sound: Audio.Sound | null = null;
+  private player: AudioPlayer | null = null;
+  private playerSubscription: { remove(): void } | null = null;
   private state: AudiobookState = 'idle';
   private currentNovelId = '';
   private activeGenerator: AsyncGenerator<AudioSegment> | null = null;
@@ -421,53 +447,61 @@ export class AudiobookPlayer {
     }
 
     try {
-      if (this.sound) {
-        await this.sound.unloadAsync();
-        this.sound = null;
-      }
+      this.releasePlayer();
+      ensureAudioMode();
 
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: `file://${segment.audioPath}` },
-        {
-          shouldPlay: this.state === 'playing',
-          // Per-voice tuning from the cast editor: rate combines the
-          // chosen speed with pitch compensation; pitch itself is
-          // baked into the rendered file.
-          rate: segment.speed ?? 1,
-          shouldCorrectPitch: true,
-          volume: segment.volume ?? 1,
+      const player = createAudioPlayer({
+        uri: `file://${segment.audioPath}`,
+      });
+      // Per-voice tuning from the cast editor: rate combines the
+      // chosen speed with pitch compensation; pitch itself is
+      // baked into the rendered file.
+      player.shouldCorrectPitch = true;
+      player.setPlaybackRate(segment.speed ?? 1, 'high');
+      player.volume = segment.volume ?? 1;
+      this.playerSubscription = player.addListener(
+        'playbackStatusUpdate',
+        status => {
+          if (status.didJustFinish && this.state === 'playing') {
+            this.playSegment(index + 1);
+          }
         },
       );
-      this.sound = sound;
-
-      sound.setOnPlaybackStatusUpdate(status => {
-        if (
-          status.isLoaded &&
-          status.didJustFinish &&
-          this.state === 'playing'
-        ) {
-          this.playSegment(index + 1);
-        }
-      });
+      this.player = player;
+      if (this.state === 'playing') {
+        player.play();
+      }
     } catch (error) {
       this.onError?.(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  /** Detach the status listener and release the native player. */
+  private releasePlayer(): void {
+    this.playerSubscription?.remove();
+    this.playerSubscription = null;
+    if (this.player) {
+      try {
+        this.player.remove();
+      } catch {
+        // Already released.
+      }
+      this.player = null;
     }
   }
 
   async pause(): Promise<void> {
     if (this.state === 'playing') {
       this.setState('paused');
-      if (this.sound) {
-        await this.sound.pauseAsync();
-      }
+      this.player?.pause();
     }
   }
 
   async resume(): Promise<void> {
     if (this.state === 'paused') {
       this.setState('playing');
-      if (this.sound) {
-        await this.sound.playAsync();
+      if (this.player) {
+        this.player.play();
       } else {
         // Resume from current segment
         await this.playSegment(this.currentIndex);
@@ -499,15 +533,7 @@ export class AudiobookPlayer {
     }
     this.segmentResolvers = [];
 
-    if (this.sound) {
-      try {
-        await this.sound.stopAsync();
-        await this.sound.unloadAsync();
-      } catch {
-        // Ignore errors during cleanup
-      }
-      this.sound = null;
-    }
+    this.releasePlayer();
 
     if (this.bufferingPromise) {
       try {
@@ -529,11 +555,7 @@ export class AudiobookPlayer {
     if (this.state === 'idle' || internal >= this.segments.length) {
       return;
     }
-    if (this.sound) {
-      await this.sound.stopAsync();
-      await this.sound.unloadAsync();
-      this.sound = null;
-    }
+    this.releasePlayer();
     const wasPlaying = this.state === 'playing';
     if (wasPlaying) {
       await this.playSegment(internal);

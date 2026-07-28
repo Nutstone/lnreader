@@ -222,7 +222,7 @@ export interface AudioSegment {
   pauseBeforeMs: number;
   /**
    * Absolute path to a WAV file on disk. Lives under the renderer's
-   * audio cache; `expo-av` plays it directly via `file://` URI.
+   * audio cache; `expo-audio` plays it directly via `file://` URI.
    */
   audioPath: string;
   durationMs: number;
